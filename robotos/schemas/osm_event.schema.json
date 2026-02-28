@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OSMEvent",
+  "type": "object",
+  "required": ["event_id", "ts", "type", "payload"],
+  "properties": {
+    "event_id": {"type": "string"},
+    "ts": {"type": "integer"},
+    "type": {"type": "string"},
+    "session_id": {"type": "string"},
+    "plan_id": {"type": "string"},
+    "action_id": {"type": "string"},
+    "payload": {"type": "object"}
+  }
+}

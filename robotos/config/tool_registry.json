@@ -1,0 +1,29 @@
+[
+  {
+    "tool": "nav.goto",
+    "dds_action": "/nav_goto/action",
+    "required_resources": ["base"],
+    "capability": "NAV",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 500,
+    "timeout_default_ms": 10000
+  },
+  {
+    "tool": "dialog.say",
+    "dds_action": "/dialog_say/action",
+    "required_resources": ["speaker"],
+    "capability": "DIALOG",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 500,
+    "timeout_default_ms": 5000
+  },
+  {
+    "tool": "dialog.wait_reply",
+    "dds_action": "/dialog_wait_reply/action",
+    "required_resources": ["mic"],
+    "capability": "DIALOG",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 500,
+    "timeout_default_ms": 30000
+  }
+]
