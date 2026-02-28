@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "robotos"
+version = "0.1.0"
+description = "RobotOS 1.3 MVP runtime"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = ["robotos"]
+
+[tool.setuptools.package-data]
+robotos = ["schemas/*.json"]
