@@ -1,3 +1,8 @@
+"""Compiler from Plan JSON to executable graph IR.
+
+Injects runtime-stability decorators (timeout/retry) and lease effects.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List

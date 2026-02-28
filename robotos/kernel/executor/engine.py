@@ -1,3 +1,8 @@
+"""Deterministic executable-graph executor.
+
+Executes IR nodes (Seq/Action/Timeout/Retry/Lease ops) against runtime state.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

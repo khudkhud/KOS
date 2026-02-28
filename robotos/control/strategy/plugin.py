@@ -1,3 +1,9 @@
+"""Strategy plugin for system-level supervision decisions.
+
+Consumes message stream events and emits governance proposals such as
+replan/cancel suggestions. This keeps policy triggers outside executor logic.
+"""
+
 from __future__ import annotations
 
 from typing import Callable, Optional
@@ -7,6 +13,8 @@ from robotos.models import Message
 
 
 class StrategyPlugin:
+    """Translate observed events into governance actions (replan/cancel)."""
+
     def __init__(
         self,
         stream: MessageStream,
@@ -19,6 +27,7 @@ class StrategyPlugin:
         stream.subscribe("*", self.on_message)
 
     def on_message(self, msg: Message) -> None:
+        """Handle stream messages and trigger strategy callbacks when matched."""
         if msg.type == "Event" and msg.topic in {"LOW_BATTERY", "NAV_STUCK"} and msg.session_id:
             self.stream.publish(
                 Message(

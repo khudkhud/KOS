@@ -1,3 +1,8 @@
+"""Policy gate and file-backed tool registry.
+
+Applies capability/risk checks before action dispatch.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

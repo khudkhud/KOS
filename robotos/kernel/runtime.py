@@ -1,3 +1,9 @@
+"""Kernel runtime loop and preemption orchestration.
+
+This module is the main execution governor that performs deterministic ticks,
+handles cancel/preempt convergence, and snapshots checkpoints.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -14,6 +20,8 @@ from robotos.models import OSMEvent, SessionState, now_ms
 
 @dataclass
 class Kernel:
+    """Execution kernel coordinating executor, actions, leases and OSM writes."""
+
     osm: OSMStore
     executor: Executor
     actions: ActionSupervisor
@@ -22,6 +30,7 @@ class Kernel:
     spin_io: Optional[Callable[[], None]] = None
 
     def run_tick(self, session_id: str, exec_graph: Dict[str, Any], rt: RuntimeState) -> str:
+        """Run one deterministic tick for a session execution graph."""
         if self.spin_io:
             self.spin_io()
         session = self.osm.session_projection[session_id]
@@ -54,6 +63,7 @@ class Kernel:
         low_exec_graph: Optional[Dict[str, Any]] = None,
         low_rt: Optional[RuntimeState] = None,
     ) -> None:
+        """Perform two-phase preemption with fencing and resource handover."""
         low = self.osm.session_projection[low_session_id]
         high = self.osm.session_projection[high_session_id]
 

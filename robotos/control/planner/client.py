@@ -1,3 +1,8 @@
+"""Planner adapter (RoboBrain client stub).
+
+Returns deterministic plan JSON for MVP flow validation.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict

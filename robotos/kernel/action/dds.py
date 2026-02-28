@@ -1,3 +1,9 @@
+"""DDS action transport abstractions and local simulation servers.
+
+Includes broker interfaces/backends, typed envelopes, action client, and a
+TimedSkillServer used by demo/tests.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass

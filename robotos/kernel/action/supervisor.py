@@ -1,3 +1,9 @@
+"""Action supervision bridge between executor and DDS action transport.
+
+Provides goal dispatch, feedback/result polling, cancel, and epoch fencing to
+avoid stale-result contamination after preempt/cancel.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,6 +26,8 @@ class ActionHandle:
 
 
 class ActionSupervisor:
+    """Supervise action lifecycle and protect against stale epochs."""
+
     def __init__(self, osm: OSMStore, dds_client: DDSActionClient) -> None:
         self.osm = osm
         self.dds_client = dds_client
@@ -34,6 +42,7 @@ class ActionSupervisor:
         return self.session_epoch.get(session_id, self.osm.session_projection.get(session_id).action_epoch if session_id in self.osm.session_projection else 0)
 
     def send_goal(self, session_id: str, tool: str, args: Dict[str, Any], plan_id: str = "", trace_id: str = "") -> ActionHandle:
+        """Dispatch a new action goal over DDS action transport."""
         epoch = self.current_epoch(session_id)
         action_id = new_id("A")
         h = ActionHandle(action_id=action_id, session_id=session_id, tool=tool, args=args, action_epoch=epoch, started_at=now_ms())
@@ -49,6 +58,7 @@ class ActionSupervisor:
         return h
 
     def poll(self, action_id: str) -> Optional[ActionResult]:
+        """Poll feedback/result channels and translate to ActionResult."""
         handle = self.active.get(action_id)
         if not handle:
             return None
@@ -83,6 +93,7 @@ class ActionSupervisor:
         return None
 
     def cancel_session(self, session_id: str, reason: str = "session_cancel") -> None:
+        """Cancel all active actions associated with a session."""
         for aid, handle in list(self.active.items()):
             if handle.session_id == session_id:
                 self.cancel(aid, reason=reason)

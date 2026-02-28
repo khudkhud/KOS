@@ -1,3 +1,5 @@
+"""CLI utilities for RobotOS (currently OSM replay)."""
+
 from __future__ import annotations
 
 import argparse

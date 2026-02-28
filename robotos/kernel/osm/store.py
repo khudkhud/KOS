@@ -1,3 +1,9 @@
+"""OSM store: event log + projections + replay/rebuild.
+
+Provides append-only event persistence, in-memory projections, and reducer-
+based rebuild from persisted logs.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -14,6 +20,8 @@ Watcher = Callable[[Dict[str, Any]], None]
 
 
 class OSMStore:
+    """Thread-safe in-memory projections with append-only event persistence."""
+
     def __init__(self, persist_path: str | None = None) -> None:
         self.version = 0
         self.event_log: List[OSMEvent] = []
@@ -85,6 +93,7 @@ class OSMStore:
         return self.version
 
     def replay_from_file(self, path: str, rebuild: bool = False) -> None:
+        """Load persisted JSONL events; optionally rebuild projections via reducer."""
         p = Path(path)
         if not p.exists():
             return
@@ -120,6 +129,7 @@ class OSMStore:
                 self._reduce_event(evt)
 
     def _reduce_event(self, evt: OSMEvent) -> None:
+        """Projection reducer: apply one event to read models."""
         payload = evt.payload
         if evt.type == "SESSION_CREATED" and evt.session_id:
             self.session_projection[evt.session_id] = Session(

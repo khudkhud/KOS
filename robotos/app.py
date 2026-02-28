@@ -1,3 +1,9 @@
+"""Application wiring and demo runner for RobotOS.
+
+This module builds a runnable in-memory system (control + kernel + skills),
+exposes a FastAPI app factory, and provides CLI demo scenarios used in tests.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -24,6 +30,7 @@ from robotos.models import Message, OSMEvent, SessionState
 
 
 def build_system() -> Dict[str, object]:
+    """Compose the full runtime system graph for demos/tests/services."""
     osm_persist = os.getenv("ROBOTOS_OSM_PERSIST")
     osm = OSMStore(persist_path=osm_persist)
     stream = MessageStream()
@@ -89,6 +96,7 @@ def run_demo(
     emit_target_gone: bool = False,
     target_gone_payload: dict | None = None,
 ) -> Dict[str, object]:
+    """Run a deterministic demo flow with optional scenario perturbations."""
     system = build_system()
     api: ControlAPI = system["api"]  # type: ignore[assignment]
     stream: MessageStream = system["stream"]  # type: ignore[assignment]

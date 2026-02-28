@@ -1,3 +1,8 @@
+"""In-memory causal message stream.
+
+Carries Event/Request/Proposal envelopes for inter-agent coordination.
+"""
+
 from __future__ import annotations
 
 from collections import defaultdict
