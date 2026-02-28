@@ -35,5 +35,13 @@ class SessionService:
     def resume(self, session_id: str) -> None:
         self.osm.apply_patch({"type": "session_state", "session_id": session_id, "state": SessionState.EXECUTING.value})
 
+
+    def preempt(self, low_session_id: str, high_session_id: str, mode: str = "PAUSE") -> None:
+        low_state = "PAUSED" if mode.upper() == "PAUSE" else "CANCELING"
+        self.osm.apply_patch({"type": "session_state", "session_id": low_session_id, "state": low_state})
+        self.osm.apply_patch({"type": "session_state", "session_id": high_session_id, "state": SessionState.EXECUTING.value})
+        self.osm.append_event(OSMEvent(type="SESSION_STATE_CHANGED", session_id=low_session_id, payload={"state": low_state, "reason": "preempt"}))
+        self.osm.append_event(OSMEvent(type="SESSION_STATE_CHANGED", session_id=high_session_id, payload={"state": "EXECUTING", "reason": "preempt"}))
+
     def get(self, session_id: str) -> Dict[str, Any]:
         return self.osm.get()["session_projection"][session_id]

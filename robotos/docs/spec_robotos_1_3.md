@@ -1,31 +1,32 @@
-# RobotOS 1.3 MVP 实现说明（vNext）
+# RobotOS 1.3 vNext 实现说明
 
-本目录实现遵循 1.3 规格并做了可落地增强：
+## 本版新增可落地能力
 
-- `control/`: Session API facade、Message Stream、ContextBuilder、Planner stub、StrategyPlugin
-- `kernel/`: Executor(BT风格 tick)、ActionSupervisor、LeaseManager、PolicyGate、OSMStore
-- `kernel/action/dds.py`: DDSAction-like transport（in-memory broker + goal/feedback/result/cancel）
-- `schemas/`: message/plan/exec_graph/osm_event/tool_registry 的 JSON schema（已接入运行时校验）
+1. **DDS middleware 抽象层**
+   - `DDSBroker` 协议 + `create_broker`
+   - `InMemoryDDSBroker`（测试/本地）
+   - `CycloneDDSBroker`（真实中间件适配）
+   - `FastDDSBroker`（预留组织级 bridge）
 
-## 本版补齐点
+2. **Tool Registry 文件化 + schema 校验**
+   - `robotos/config/tool_registry.json`
+   - `ToolRegistry.from_json_file()` + `tool_registry.schema.json` 校验
 
-1. DDSAction 路径（可替换）
-   - Kernel 不再直调 skill 对象，而是通过 `DDSActionClient` 发送 goal/cancel
-   - SkillServer 通过 topic 收 goal/cancel，并回 feedback/result
-   - 主题形态：`/<tool>/action/{goal,feedback,result,cancel}`（tool 名做安全映射）
+3. **Preempt + Checkpoint**
+   - `Kernel.preempt(low, high, mode=PAUSE|CANCEL)`
+   - Tick 过程中持续更新 `session.bt_checkpoint`
+   - `restore_checkpoint()` 用于 resume
 
-2. Schema 边界校验（硬约束）
-   - MessageStream.publish 校验 `message.schema.json`
-   - Planner 输出校验 `plan_json.schema.json`
-   - Compiler 输入/输出分别校验 `plan_json` 与 `exec_graph`
-   - OSM append_event 校验 `osm_event.schema.json`
+4. **真实 HTTP API**
+   - `control/api/http.py` 使用 FastAPI 暴露 `/v1/sessions/*` 与 `/v1/preempt`
 
-3. 执行观测增强
-   - OSM 中增加 `ACTION_FEEDBACK` 事件，便于调试与回放
+5. **OSM 持久化 replay**
+   - `OSMStore(persist_path=...)` 自动 JSONL 追加
+   - `python -m robotos.cli replay --path ...` 回放
 
-## 下一版建议
+## 下一步建议
 
-- 将 InMemoryDDSBroker 替换为真实 DDS middleware（Cyclone/FastDDS）
-- 完成工具注册中心文件化加载 + `tool_registry.schema.json` 运行时校验
-- 实现 Preempt（PAUSE/CANCEL 策略分支）和 checkpoint 恢复
-- 引入真实 HTTP API（FastAPI）与 OSM 持久化 replay CLI
+- 将 CycloneDDS topic 定义改为稳定 IDL/TypeObject 并补 QoS 配置
+- 对 FastDDS 增加正式 Python/C++ bridge（当前为预留 hook）
+- Replay 从“事件查看”升级为“projection 重建 + dry/live run”
+- Preempt 增加 Lease 级细粒度让渡与强制 quiesce 超时策略

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
+from importlib import resources
+from typing import Any, Dict, List
+import json
 
 from robotos.models import Session
+from robotos.schema_validate import validate
 
 
 @dataclass
@@ -14,11 +17,32 @@ class ToolSpec:
     risk_class: str = "SAFE"
     cancel_grace_ms: int = 500
     timeout_default_ms: int = 600_000
+    dds_action: str = ""
 
 
 class ToolRegistry:
     def __init__(self, tools: List[ToolSpec]) -> None:
         self._tools: Dict[str, ToolSpec] = {t.tool: t for t in tools}
+
+    @classmethod
+    def from_json_file(cls, package_rel_path: str = "tool_registry.json") -> "ToolRegistry":
+        text = resources.files("robotos.config").joinpath(package_rel_path).read_text(encoding="utf-8")
+        raw: List[Dict[str, Any]] = json.loads(text)
+        specs: List[ToolSpec] = []
+        for entry in raw:
+            validate(entry, "tool_registry.schema.json")
+            specs.append(
+                ToolSpec(
+                    tool=entry["tool"],
+                    dds_action=entry.get("dds_action", ""),
+                    required_resources=entry["required_resources"],
+                    capability=entry["capability"],
+                    risk_class=entry.get("risk_class", "SAFE"),
+                    cancel_grace_ms=entry.get("cancel_grace_ms", 500),
+                    timeout_default_ms=entry.get("timeout_default_ms", 600_000),
+                )
+            )
+        return cls(specs)
 
     def get(self, name: str) -> ToolSpec:
         if name not in self._tools:

@@ -1,19 +1,39 @@
-# RobotOS 1.3 MVP (Python)
+# RobotOS 1.3 vNext (Python)
 
-可运行的最小实现，覆盖你给出的 RobotOS 1.3 关键闭环，并补齐 vNext 两个关键能力：
+这版实现了面向“可落地”的下一步能力：
 
-- Session 治理（创建/提交 intent/cancel/pause/resume）
-- Kernel 执行（tick + executable graph + action + lease + policy）
-- OSM（append-only 事件日志 + projections + snapshot）
-- Agent 因果通信（Event/Request/Proposal 三类消息）
-- DDSAction-like 执行路径（goal/feedback/result/cancel）
-- Schema 运行时校验（message/plan/exec_graph/osm_event）
+- 可选 DDS backend：`inmemory` / `cyclonedds` / `fastdds(预留适配)`
+- Tool Registry 文件化加载 + `tool_registry.schema.json` 运行时校验
+- Preempt（PAUSE/CANCEL 分支）与 checkpoint snapshot/restore
+- FastAPI HTTP API
+- OSM 事件日志持久化（JSONL）与 replay CLI
 
-## 运行
+## 运行 Demo
 
 ```bash
 python -m robotos.app
 python -m robotos.app --cancel
+python -m robotos.app --preempt
+```
+
+## 启动 HTTP API
+
+```bash
+uvicorn robotos.app:build_http_app --factory --host 0.0.0.0 --port 8000
+```
+
+## OSM 持久化与回放
+
+```bash
+ROBOTOS_OSM_PERSIST=/tmp/robotos_events.jsonl python -m robotos.app
+python -m robotos.cli replay --path /tmp/robotos_events.jsonl
+```
+
+## DDS Backend 选择
+
+```bash
+ROBOTOS_DDS_BACKEND=inmemory python -m robotos.app
+ROBOTOS_DDS_BACKEND=cyclonedds python -m robotos.app
 ```
 
 ## 测试

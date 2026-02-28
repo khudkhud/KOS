@@ -36,5 +36,13 @@ class ControlAPI:
         self.sessions.resume(session_id)
         return {"status": "ok"}
 
+    def post_preempt(self, body: Dict[str, Any]) -> Dict[str, str]:
+        self.sessions.preempt(
+            low_session_id=body["low_session_id"],
+            high_session_id=body["high_session_id"],
+            mode=body.get("mode", "PAUSE"),
+        )
+        return {"status": "ok"}
+
     def get_session(self, session_id: str) -> Dict[str, Any]:
         return self.sessions.get(session_id)
