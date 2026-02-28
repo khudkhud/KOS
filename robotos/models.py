@@ -40,6 +40,7 @@ class Session:
     trace_root: Optional[str] = None
     state: SessionState = SessionState.CREATED
     last_error: Dict[str, str] = field(default_factory=lambda: {"code": "", "msg": ""})
+    action_epoch: int = 0
 
 
 @dataclass

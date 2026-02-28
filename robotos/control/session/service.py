@@ -12,10 +12,10 @@ class SessionService:
         self.osm = osm
         self.stream = stream
 
-    def create(self, owner: str, capabilities: list[str], risk_class: str = "SAFE", priority: int = 0) -> Session:
-        s = Session(session_id=new_id("S"), owner=owner, capabilities=capabilities, risk_class=risk_class, priority=priority)
+    def create(self, owner: str, capabilities: list[str], risk_class: str = "SAFE", priority: int = 0, preemption_policy: str = "ALLOW") -> Session:
+        s = Session(session_id=new_id("S"), owner=owner, capabilities=capabilities, risk_class=risk_class, priority=priority, preemption_policy=preemption_policy)
         self.osm.apply_patch({"type": "session_upsert", "session": s})
-        self.osm.append_event(OSMEvent(type="SESSION_CREATED", session_id=s.session_id, payload={"owner": owner}))
+        self.osm.append_event(OSMEvent(type="SESSION_CREATED", session_id=s.session_id, payload={"owner": owner, "capabilities": capabilities, "risk_class": risk_class, "priority": priority, "preemption_policy": preemption_policy}))
         self.stream.publish(Message(type="Event", topic="SESSION_CREATED", session_id=s.session_id, payload={"owner": owner}))
         return s
 

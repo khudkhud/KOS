@@ -3,6 +3,7 @@ from pathlib import Path
 
 from robotos.app import run_demo
 from robotos.control.message.stream import MessageStream
+from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import ToolRegistry
 from robotos.models import Message
 from robotos.schema_validate import SchemaValidationError
@@ -20,10 +21,28 @@ def test_demo_cancel():
     assert out["session"]["state"] == "CANCELED"
 
 
-def test_preempt_pause_resume():
+def test_preempt_pause_resume_two_phase():
     out = run_demo(do_preempt=True)
     assert out["session"]["state"] == "SUCCEEDED"
+    assert any(e["type"] == "PREEMPT_PHASE1_START" for e in out["events"])
+    assert any(e["type"] == "PREEMPT_PHASE2_COMPLETE" for e in out["events"])
     assert any(e["type"] == "SESSION_STATE_CHANGED" and e["payload"].get("state") == "PAUSED" for e in out["events"])
+
+
+def test_target_gone_from_mother_auto_cancel():
+    out = run_demo(emit_target_gone=True)
+    assert out["session"]["state"] == "CANCELED"
+    assert any(e["type"] == "REQUEST_ENQUEUED" and e["payload"].get("topic") == "REQ_CANCEL" for e in out["events"])
+
+
+def test_target_gone_low_confidence_not_cancel():
+    out = run_demo(emit_target_gone=True, target_gone_payload={"target": "son", "source": "mother", "confidence": 0.4})
+    assert out["session"]["state"] == "SUCCEEDED"
+
+
+def test_target_gone_wrong_target_not_cancel():
+    out = run_demo(emit_target_gone=True, target_gone_payload={"target": "daughter", "source": "mother", "confidence": 0.95})
+    assert out["session"]["state"] == "SUCCEEDED"
 
 
 def test_message_schema_validation():
@@ -41,14 +60,17 @@ def test_tool_registry_file_load():
     assert reg.get("nav.goto").capability == "NAV"
 
 
-def test_osm_persist_and_replay(tmp_path: Path):
+def test_osm_persist_and_rebuild(tmp_path: Path):
     persist = tmp_path / "events.jsonl"
     os.environ["ROBOTOS_OSM_PERSIST"] = str(persist)
     try:
         out = run_demo(cancel_midway=False)
         assert out["session"]["state"] == "SUCCEEDED"
         assert persist.exists()
-        lines = persist.read_text(encoding="utf-8").strip().splitlines()
-        assert len(lines) > 0
+
+        rebuilt = OSMStore(persist_path=str(persist))
+        snap = rebuilt.get()
+        assert len(snap["session_projection"]) >= 1
+        assert len(snap["action_projection"]) >= 1
     finally:
         os.environ.pop("ROBOTOS_OSM_PERSIST", None)

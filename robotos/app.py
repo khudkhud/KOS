@@ -20,7 +20,7 @@ from robotos.kernel.lease.manager import LeaseManager
 from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import PolicyGate, ToolRegistry
 from robotos.kernel.runtime import Kernel
-from robotos.models import OSMEvent, SessionState
+from robotos.models import Message, OSMEvent, SessionState
 
 
 def build_system() -> Dict[str, object]:
@@ -58,7 +58,11 @@ def build_system() -> Dict[str, object]:
     def on_replan(session_id: str) -> None:
         osm.append_event(OSMEvent(type="REQUEST_ENQUEUED", session_id=session_id, payload={"topic": "REQ_PLAN"}))
 
-    StrategyPlugin(stream, on_replan)
+    def on_cancel(session_id: str, reason: str) -> None:
+        osm.append_event(OSMEvent(type="REQUEST_ENQUEUED", session_id=session_id, payload={"topic": "REQ_CANCEL", "reason": reason}))
+        sessions.cancel(session_id)
+
+    StrategyPlugin(stream, on_replan, on_cancel=on_cancel)
     return {
         "osm": osm,
         "stream": stream,
@@ -79,9 +83,15 @@ def build_http_app():
     return build_fastapi(api)
 
 
-def run_demo(cancel_midway: bool = False, do_preempt: bool = False) -> Dict[str, object]:
+def run_demo(
+    cancel_midway: bool = False,
+    do_preempt: bool = False,
+    emit_target_gone: bool = False,
+    target_gone_payload: dict | None = None,
+) -> Dict[str, object]:
     system = build_system()
     api: ControlAPI = system["api"]  # type: ignore[assignment]
+    stream: MessageStream = system["stream"]  # type: ignore[assignment]
     osm: OSMStore = system["osm"]  # type: ignore[assignment]
     context_builder: ContextBuilder = system["context_builder"]  # type: ignore[assignment]
     planner: PlannerClient = system["planner"]  # type: ignore[assignment]
@@ -114,7 +124,16 @@ def run_demo(cancel_midway: bool = False, do_preempt: bool = False) -> Dict[str,
         ticks += 1
         if do_preempt and ticks == 2:
             hi = api.post_sessions({"owner": "monitor", "capabilities": ["NAV"], "priority": 10})["session_id"]
-            kernel.preempt(session_id, hi, mode="PAUSE")
+            kernel.preempt(session_id, hi, mode="PAUSE", low_exec_graph=exec_graph, low_rt=rt)
+        if emit_target_gone and ticks == 2:
+            stream.publish(
+                Message(
+                    type="Event",
+                    topic="TARGET_GONE",
+                    session_id=session_id,
+                    payload=target_gone_payload or {"target": "son", "source": "mother", "confidence": 0.95},
+                )
+            )
         if cancel_midway and ticks == 3:
             api.post_cancel(session_id)
         time.sleep(0.03)
@@ -125,8 +144,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cancel", action="store_true", help="cancel session mid run")
     parser.add_argument("--preempt", action="store_true", help="simulate preempt + resume")
+    parser.add_argument("--target-gone", action="store_true", help="simulate family says target already left")
     args = parser.parse_args()
-    result = run_demo(cancel_midway=args.cancel, do_preempt=args.preempt)
+    result = run_demo(cancel_midway=args.cancel, do_preempt=args.preempt, emit_target_gone=args.target_gone)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

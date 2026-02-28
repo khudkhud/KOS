@@ -28,7 +28,7 @@ class LeaseManager:
             )
             self.by_resource[res] = lease.lease_id
             self.osm.apply_patch({"type": "lease_upsert", "lease": lease})
-            self.osm.append_event(OSMEvent(type="LEASE_ACQUIRED", session_id=session_id, payload={"resource": res, "lease_id": lease.lease_id}))
+            self.osm.append_event(OSMEvent(type="LEASE_ACQUIRED", session_id=session_id, payload={"resource": res, "lease_id": lease.lease_id, "ttl_ms": ttl_ms, "expires_at": lease.expires_at}))
             leases.append(lease)
         return leases
 

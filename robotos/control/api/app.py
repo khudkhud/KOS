@@ -17,6 +17,7 @@ class ControlAPI:
             capabilities=body.get("capabilities", []),
             risk_class=body.get("risk_class", "SAFE"),
             priority=body.get("priority", 0),
+            preemption_policy=body.get("preemption_policy", "ALLOW"),
         )
         return {"session_id": s.session_id}
 
@@ -35,6 +36,7 @@ class ControlAPI:
     def post_resume(self, session_id: str) -> Dict[str, str]:
         self.sessions.resume(session_id)
         return {"status": "ok"}
+
 
     def post_preempt(self, body: Dict[str, Any]) -> Dict[str, str]:
         self.sessions.preempt(

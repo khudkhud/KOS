@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Callable, Dict, List, Optional, Protocol
 import json
 import os
+import time
 
 from robotos.models import ActionResult, now_ms
 
@@ -14,6 +15,7 @@ class ActionHeader:
     plan_id: str
     action_id: str
     trace_id: str
+    action_epoch: int = 0
     osm_version_hint: int = 0
 
 
@@ -100,7 +102,6 @@ class CycloneDDSBroker:
     def publish(self, topic: str, payload: Dict[str, Any]) -> None:
         msg = self._topic.data_type(topic=topic, payload=json.dumps(payload, ensure_ascii=False))
         self._writer.write(msg)
-        self.spin_once()
 
     def spin_once(self) -> None:
         samples = self._reader.take(N=64)
@@ -211,6 +212,17 @@ class TimedSkillServer:
                 del self.jobs[aid]
                 status = "FAILED" if self.fail else "SUCCEEDED"
                 self.broker.publish(f"{_prefix(self.tool)}/result", {"hdr": hdr, "status": status, "error_code": "SIM_FAIL" if self.fail else "", "error_msg": ""})
+
+
+def run_skill_server_forever(tool: str, duration_ms: int, backend: str = "cyclonedds", fail: bool = False) -> None:
+    broker = create_broker(backend)
+    server = TimedSkillServer(broker, tool=tool, duration_ms=duration_ms, fail=fail)
+    while True:
+        server.spin_once(step_ms=100)
+        spin_once = getattr(broker, "spin_once", None)
+        if callable(spin_once):
+            spin_once()
+        time.sleep(0.05)
 
 
 def result_to_action_result(result: Result) -> ActionResult:
