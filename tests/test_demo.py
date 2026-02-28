@@ -29,6 +29,22 @@ def test_preempt_pause_resume_two_phase():
     assert any(e["type"] == "SESSION_STATE_CHANGED" and e["payload"].get("state") == "PAUSED" for e in out["events"])
 
 
+def test_target_gone_from_mother_auto_cancel():
+    out = run_demo(emit_target_gone=True)
+    assert out["session"]["state"] == "CANCELED"
+    assert any(e["type"] == "REQUEST_ENQUEUED" and e["payload"].get("topic") == "REQ_CANCEL" for e in out["events"])
+
+
+def test_target_gone_low_confidence_not_cancel():
+    out = run_demo(emit_target_gone=True, target_gone_payload={"target": "son", "source": "mother", "confidence": 0.4})
+    assert out["session"]["state"] == "SUCCEEDED"
+
+
+def test_target_gone_wrong_target_not_cancel():
+    out = run_demo(emit_target_gone=True, target_gone_payload={"target": "daughter", "source": "mother", "confidence": 0.95})
+    assert out["session"]["state"] == "SUCCEEDED"
+
+
 def test_message_schema_validation():
     stream = MessageStream()
     bad = Message(type="NotAllowed", topic="X")
