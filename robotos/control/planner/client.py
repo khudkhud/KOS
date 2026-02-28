@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from robotos.models import new_id
+from robotos.schema_validate import validate
 
 
 class PlannerClient:
@@ -12,7 +13,7 @@ class PlannerClient:
         intent_text = context_packet["intent"].get("text", "")
         room = context_packet["intent"].get("slots", {}).get("room", "bedroom")
         say_text = "吃饭啦" if "吃饭" in intent_text else "收到"
-        return {
+        plan = {
             "session_id": context_packet["session_id"],
             "plan_id": new_id("P"),
             "trace_root": context_packet["session_id"],
@@ -26,3 +27,5 @@ class PlannerClient:
                 ],
             },
         }
+        validate(plan, "plan_json.schema.json")
+        return plan

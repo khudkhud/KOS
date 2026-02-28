@@ -3,19 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from robotos.models import ActionResult, OSMEvent, new_id, now_ms
+from robotos.kernel.action.dds import ActionHeader, Cancel, DDSActionClient, Goal, result_to_action_result
 from robotos.kernel.osm.store import OSMStore
-
-
-class Skill:
-    def start(self, action_id: str, tool: str, args: Dict[str, Any]) -> None:  # pragma: no cover - interface
-        raise NotImplementedError
-
-    def step(self, action_id: str, now: int) -> Optional[ActionResult]:  # pragma: no cover - interface
-        raise NotImplementedError
-
-    def cancel(self, action_id: str) -> ActionResult:  # pragma: no cover - interface
-        raise NotImplementedError
+from robotos.models import ActionResult, OSMEvent, new_id, now_ms
 
 
 @dataclass
@@ -29,16 +19,21 @@ class ActionHandle:
 
 
 class ActionSupervisor:
-    def __init__(self, osm: OSMStore, skill_router: Dict[str, Skill]) -> None:
+    def __init__(self, osm: OSMStore, dds_client: DDSActionClient) -> None:
         self.osm = osm
-        self.skill_router = skill_router
+        self.dds_client = dds_client
         self.active: Dict[str, ActionHandle] = {}
 
-    def send_goal(self, session_id: str, tool: str, args: Dict[str, Any]) -> ActionHandle:
+    def send_goal(self, session_id: str, tool: str, args: Dict[str, Any], plan_id: str = "", trace_id: str = "") -> ActionHandle:
         action_id = new_id("A")
         h = ActionHandle(action_id=action_id, session_id=session_id, tool=tool, args=args, started_at=now_ms())
         self.active[action_id] = h
-        self.skill_router[tool].start(action_id, tool, args)
+        goal = Goal(
+            hdr=ActionHeader(session_id=session_id, plan_id=plan_id, action_id=action_id, trace_id=trace_id, osm_version_hint=self.osm.version),
+            tool=tool,
+            json_args=args,
+        )
+        self.dds_client.send_goal(goal)
         self.osm.append_event(OSMEvent(type="ACTION_GOAL_SENT", session_id=session_id, action_id=action_id, payload={"tool": tool, "args": args}))
         self.osm.apply_patch({"type": "action_update", "action_id": action_id, "data": {"state": "RUNNING", "tool": tool, "session_id": session_id}})
         return h
@@ -47,19 +42,28 @@ class ActionSupervisor:
         handle = self.active.get(action_id)
         if not handle:
             return None
-        result = self.skill_router[handle.tool].step(action_id, now_ms())
+        fb = self.dds_client.poll_feedback(action_id)
+        if fb:
+            self.osm.append_event(OSMEvent(type="ACTION_FEEDBACK", session_id=handle.session_id, action_id=action_id, payload={"progress": fb.progress, "status": fb.status_msg}))
+
+        result = self.dds_client.poll_result(action_id)
         if result:
-            handle.state = "TERMINAL"
-            self.osm.append_event(OSMEvent(type="ACTION_RESULT", session_id=handle.session_id, action_id=action_id, payload={"status": result.status, "error_code": result.error_code}))
-            self.osm.apply_patch({"type": "action_update", "action_id": action_id, "data": {"state": result.status, "tool": handle.tool, "session_id": handle.session_id}})
+            ar = result_to_action_result(result)
+            self.osm.append_event(OSMEvent(type="ACTION_RESULT", session_id=handle.session_id, action_id=action_id, payload={"status": ar.status, "error_code": ar.error_code}))
+            self.osm.apply_patch({"type": "action_update", "action_id": action_id, "data": {"state": ar.status, "tool": handle.tool, "session_id": handle.session_id}})
             self.active.pop(action_id, None)
-        return result
+            return ar
+        return None
 
     def cancel(self, action_id: str, reason: str = "cancel") -> Optional[ActionResult]:
         handle = self.active.get(action_id)
         if not handle:
             return None
-        res = self.skill_router[handle.tool].cancel(action_id)
+        cancel = Cancel(
+            hdr=ActionHeader(session_id=handle.session_id, plan_id="", action_id=action_id, trace_id="", osm_version_hint=self.osm.version),
+            reason=reason,
+        )
+        self.dds_client.cancel(handle.tool, cancel)
         self.osm.append_event(OSMEvent(type="ACTION_CANCELED", session_id=handle.session_id, action_id=action_id, payload={"reason": reason}))
-        self.active.pop(action_id, None)
-        return res
+        # terminal result will come from result channel; this keeps behavior close to DDS
+        return None

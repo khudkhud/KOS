@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from robotos.kernel.policy.gate import ToolRegistry
 from robotos.models import new_id
+from robotos.schema_validate import validate
 
 
 class PlanCompiler:
@@ -11,6 +12,7 @@ class PlanCompiler:
         self.tools = tool_registry
 
     def compile(self, plan: Dict[str, Any]) -> Dict[str, Any]:
+        validate(plan, "plan_json.schema.json")
         children: List[Dict[str, Any]] = []
         held: List[str] = []
         for node in plan["root"]["children"]:
@@ -29,9 +31,11 @@ class PlanCompiler:
             children.append(wrapped)
         if held:
             children.append({"type": "ReleaseLease", "resources": held})
-        return {
+        graph = {
             "exec_graph_id": new_id("G"),
             "session_id": plan["session_id"],
             "plan_id": plan["plan_id"],
             "root": {"type": "Seq", "children": children},
         }
+        validate(graph, "exec_graph.schema.json")
+        return graph

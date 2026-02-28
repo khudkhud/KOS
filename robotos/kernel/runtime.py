@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable, Optional
 from typing import Any, Dict
 
 from robotos.kernel.action.supervisor import ActionSupervisor
@@ -18,8 +19,11 @@ class Kernel:
     actions: ActionSupervisor
     leases: LeaseManager
     policy: PolicyGate
+    spin_io: Optional[Callable[[], None]] = None
 
     def run_tick(self, session_id: str, exec_graph: Dict[str, Any], rt: RuntimeState) -> str:
+        if self.spin_io:
+            self.spin_io()
         session = self.osm.session_projection[session_id]
         if session.state == SessionState.CANCELING:
             self.executor.halt_subtree(exec_graph["root"], rt)

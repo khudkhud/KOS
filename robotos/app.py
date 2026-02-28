@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from typing import Dict
+from typing import Dict, List
 
 from robotos.control.api.app import ControlAPI
 from robotos.control.context.builder import ContextBuilder
@@ -12,6 +12,7 @@ from robotos.control.planner.client import PlannerClient
 from robotos.control.planner.compiler import PlanCompiler
 from robotos.control.session.service import SessionService
 from robotos.control.strategy.plugin import StrategyPlugin
+from robotos.kernel.action.dds import DDSActionClient, InMemoryDDSBroker, TimedSkillServer
 from robotos.kernel.action.supervisor import ActionSupervisor
 from robotos.kernel.executor.engine import Executor, RuntimeState
 from robotos.kernel.lease.manager import LeaseManager
@@ -19,8 +20,6 @@ from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import PolicyGate, ToolRegistry, ToolSpec
 from robotos.kernel.runtime import Kernel
 from robotos.models import OSMEvent, SessionState
-from robotos.skills.dialog_skill.skill import build_dialog_say_skill, build_dialog_wait_skill
-from robotos.skills.nav_skill.skill import build_nav_skill
 
 
 def build_system() -> Dict[str, object]:
@@ -33,17 +32,22 @@ def build_system() -> Dict[str, object]:
             ToolSpec(tool="dialog.wait_reply", required_resources=["mic"], capability="DIALOG", timeout_default_ms=30_000),
         ]
     )
+    broker = InMemoryDDSBroker()
+    servers: List[TimedSkillServer] = [
+        TimedSkillServer(broker, "nav.goto", duration_ms=1200),
+        TimedSkillServer(broker, "dialog.say", duration_ms=500),
+        TimedSkillServer(broker, "dialog.wait_reply", duration_ms=800),
+    ]
+
+    def spin_servers() -> None:
+        for server in servers:
+            server.spin_once(step_ms=200)
+
     leases = LeaseManager(osm)
-    actions = ActionSupervisor(
-        osm,
-        {
-            "nav.goto": build_nav_skill(),
-            "dialog.say": build_dialog_say_skill(),
-            "dialog.wait_reply": build_dialog_wait_skill(),
-        },
-    )
+    dds_client = DDSActionClient(broker)
+    actions = ActionSupervisor(osm, dds_client)
     policy = PolicyGate(registry)
-    kernel = Kernel(osm=osm, executor=Executor(policy, leases, actions), actions=actions, leases=leases, policy=policy)
+    kernel = Kernel(osm=osm, executor=Executor(policy, leases, actions), actions=actions, leases=leases, policy=policy, spin_io=spin_servers)
     sessions = SessionService(osm, stream)
     api = ControlAPI(sessions)
     context_builder = ContextBuilder(osm)
@@ -76,15 +80,17 @@ def run_demo(cancel_midway: bool = False) -> Dict[str, object]:
     kernel: Kernel = system["kernel"]  # type: ignore[assignment]
 
     session_id = api.post_sessions({"owner": "voice", "capabilities": ["NAV", "DIALOG"]})["session_id"]
-    api.post_submit_intent(session_id, {"text": "去卧室叫孩子吃饭", "slots": {"room": "bedroom"}})
+    intent = {"text": "去卧室叫孩子吃饭", "slots": {"room": "bedroom"}}
+    api.post_submit_intent(session_id, intent)
 
     osm.apply_patch({"type": "session_state", "session_id": session_id, "state": SessionState.PLANNING.value})
-    context_packet = context_builder.build(session_id, {"text": "去卧室叫孩子吃饭", "slots": {"room": "bedroom"}}, {"risk_class": "SAFE", "capabilities": ["NAV", "DIALOG"]})
+    context_packet = context_builder.build(session_id, intent, {"risk_class": "SAFE", "capabilities": ["NAV", "DIALOG"]})
     plan = planner.plan(context_packet)
     exec_graph = compiler.compile(plan)
     session = osm.session_projection[session_id]
     session.plan_id = plan["plan_id"]
     session.exec_graph_id = exec_graph["exec_graph_id"]
+    session.trace_root = plan["trace_root"]
     session.state = SessionState.EXECUTING
 
     rt = RuntimeState()

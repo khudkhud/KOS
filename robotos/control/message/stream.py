@@ -3,7 +3,10 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Callable, DefaultDict, List
 
+from dataclasses import asdict
+
 from robotos.models import Message
+from robotos.schema_validate import validate
 
 
 Subscriber = Callable[[Message], None]
@@ -23,6 +26,7 @@ class MessageStream:
         self._subs[topic].append(cb)
 
     def publish(self, msg: Message) -> None:
+        validate(asdict(msg), "message.schema.json")
         for cb in self._all:
             cb(msg)
         for cb in self._subs.get(msg.topic, []):

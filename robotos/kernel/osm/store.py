@@ -4,6 +4,7 @@ from dataclasses import asdict
 from typing import Any, Callable, Dict, List, Optional
 
 from robotos.models import Lease, OSMEvent, Session, SessionState
+from robotos.schema_validate import validate
 
 
 Watcher = Callable[[Dict[str, Any]], None]
@@ -35,6 +36,7 @@ class OSMStore:
         self._watchers.setdefault(query, []).append(cb)
 
     def append_event(self, e: OSMEvent) -> int:
+        validate(asdict(e), "osm_event.schema.json")
         self.event_log.append(e)
         self.version += 1
         return self.version
