@@ -6,10 +6,11 @@ Carries Event/Request/Proposal envelopes for inter-agent coordination.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Callable, DefaultDict, List
+from typing import Callable, DefaultDict, List, Optional
 
 from dataclasses import asdict
 
+from robotos.control.message.agents import AgentRegistry
 from robotos.models import Message
 from robotos.schema_validate import validate
 
@@ -20,18 +21,32 @@ Subscriber = Callable[[Message], None]
 class MessageStream:
     """In-memory pub/sub for Event/Request/Proposal causal traffic."""
 
-    def __init__(self) -> None:
+    def __init__(self, registry: Optional[AgentRegistry] = None) -> None:
         self._subs: DefaultDict[str, List[Subscriber]] = defaultdict(list)
         self._all: List[Subscriber] = []
+        self.registry = registry
+        self.history: List[dict] = []
 
-    def subscribe(self, topic: str, cb: Subscriber) -> None:
+    def subscribe(self, topic: str, cb: Subscriber, agent_id: Optional[str] = None) -> None:
+        if agent_id and self.registry and not self.registry.can_subscribe(agent_id, topic):
+            raise PermissionError(f"agent {agent_id} is not allowed to subscribe topic {topic}")
         if topic == "*":
             self._all.append(cb)
             return
         self._subs[topic].append(cb)
 
-    def publish(self, msg: Message) -> None:
+    def publish(self, msg: Message, sender: Optional[str] = None) -> None:
+        if sender and self.registry and not self.registry.can_publish(sender, msg):
+            raise PermissionError(f"agent {sender} cannot publish message type {msg.type}")
         validate(asdict(msg), "message.schema.json")
+        self.history.append({
+            "sender": sender or "unknown",
+            "type": msg.type,
+            "topic": msg.topic,
+            "session_id": msg.session_id,
+            "payload": msg.payload,
+            "ts": msg.ts,
+        })
         for cb in self._all:
             cb(msg)
         for cb in self._subs.get(msg.topic, []):

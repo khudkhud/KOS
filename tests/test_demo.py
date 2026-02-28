@@ -2,7 +2,9 @@ import os
 from pathlib import Path
 
 from robotos.app import run_demo
+from robotos.control.message.agents import build_default_agent_registry
 from robotos.control.message.stream import MessageStream
+from robotos.demo_agent_comm import run_agent_comm_demo
 from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import ToolRegistry
 from robotos.models import Message
@@ -74,3 +76,19 @@ def test_osm_persist_and_rebuild(tmp_path: Path):
         assert len(snap["action_projection"]) >= 1
     finally:
         os.environ.pop("ROBOTOS_OSM_PERSIST", None)
+
+
+def test_agent_publish_permission_guard():
+    stream = MessageStream(registry=build_default_agent_registry())
+    try:
+        stream.publish(Message(type="Request", topic="REQ_CANCEL", session_id="S-1", payload={}), sender="monitor_agent")
+        raise AssertionError("expected permission error")
+    except PermissionError:
+        pass
+
+
+def test_agent_comm_demo_visualization():
+    out = run_agent_comm_demo()
+    assert out["session"]["state"] == "CANCELED"
+    assert "sequenceDiagram" in out["mermaid"]
+    assert any(m["topic"] == "TARGET_GONE" for m in out["messages"])

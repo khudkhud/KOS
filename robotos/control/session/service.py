@@ -25,20 +25,20 @@ class SessionService:
         s = Session(session_id=new_id("S"), owner=owner, capabilities=capabilities, risk_class=risk_class, priority=priority, preemption_policy=preemption_policy)
         self.osm.apply_patch({"type": "session_upsert", "session": s})
         self.osm.append_event(OSMEvent(type="SESSION_CREATED", session_id=s.session_id, payload={"owner": owner, "capabilities": capabilities, "risk_class": risk_class, "priority": priority, "preemption_policy": preemption_policy}))
-        self.stream.publish(Message(type="Event", topic="SESSION_CREATED", session_id=s.session_id, payload={"owner": owner}))
+        self.stream.publish(Message(type="Event", topic="SESSION_CREATED", session_id=s.session_id, payload={"owner": owner}), sender="control")
         return s
 
     def submit_intent(self, session_id: str, intent: Dict[str, Any]) -> None:
         """Attach user intent to session and enqueue planning request."""
         self.osm.apply_patch({"type": "intent_enqueue", "intent": {"session_id": session_id, "intent": intent}})
         self.osm.append_event(OSMEvent(type="INTENT_SUBMITTED", session_id=session_id, payload=intent))
-        self.stream.publish(Message(type="Request", topic="REQ_PLAN", session_id=session_id, payload=intent))
+        self.stream.publish(Message(type="Request", topic="REQ_PLAN", session_id=session_id, payload=intent), sender="control")
 
     def cancel(self, session_id: str) -> None:
         """Move session to CANCELING; kernel completes convergence."""
         self.osm.apply_patch({"type": "session_state", "session_id": session_id, "state": SessionState.CANCELING.value})
         self.osm.append_event(OSMEvent(type="SESSION_STATE_CHANGED", session_id=session_id, payload={"state": "CANCELING"}))
-        self.stream.publish(Message(type="Request", topic="REQ_CANCEL", session_id=session_id, payload={}))
+        self.stream.publish(Message(type="Request", topic="REQ_CANCEL", session_id=session_id, payload={}), sender="control")
 
     def pause(self, session_id: str) -> None:
         self.osm.apply_patch({"type": "session_state", "session_id": session_id, "state": SessionState.PAUSED.value})

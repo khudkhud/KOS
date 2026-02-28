@@ -14,6 +14,7 @@ from typing import Dict, List
 
 from robotos.control.api.app import ControlAPI
 from robotos.control.context.builder import ContextBuilder
+from robotos.control.message.agents import build_default_agent_registry
 from robotos.control.message.stream import MessageStream
 from robotos.control.planner.client import PlannerClient
 from robotos.control.planner.compiler import PlanCompiler
@@ -33,7 +34,8 @@ def build_system() -> Dict[str, object]:
     """Compose the full runtime system graph for demos/tests/services."""
     osm_persist = os.getenv("ROBOTOS_OSM_PERSIST")
     osm = OSMStore(persist_path=osm_persist)
-    stream = MessageStream()
+    agent_registry = build_default_agent_registry()
+    stream = MessageStream(registry=agent_registry)
     registry = ToolRegistry.from_json_file("tool_registry.json")
 
     broker = create_broker(os.getenv("ROBOTOS_DDS_BACKEND", "inmemory"))
@@ -69,7 +71,7 @@ def build_system() -> Dict[str, object]:
         osm.append_event(OSMEvent(type="REQUEST_ENQUEUED", session_id=session_id, payload={"topic": "REQ_CANCEL", "reason": reason}))
         sessions.cancel(session_id)
 
-    StrategyPlugin(stream, on_replan, on_cancel=on_cancel)
+    StrategyPlugin(stream, on_replan, on_cancel=on_cancel, agent_id="strategy")
     return {
         "osm": osm,
         "stream": stream,
@@ -140,12 +142,13 @@ def run_demo(
                     topic="TARGET_GONE",
                     session_id=session_id,
                     payload=target_gone_payload or {"target": "son", "source": "mother", "confidence": 0.95},
-                )
+                ),
+                sender="monitor_agent",
             )
         if cancel_midway and ticks == 3:
             api.post_cancel(session_id)
         time.sleep(0.03)
-    return {"session": osm.get()["session_projection"][session_id], "events": [e.__dict__ for e in osm.event_log]}
+    return {"session": osm.get()["session_projection"][session_id], "events": [e.__dict__ for e in osm.event_log], "messages": list(stream.history)}
 
 
 def main() -> None:

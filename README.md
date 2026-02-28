@@ -16,6 +16,7 @@ python -m robotos.app
 python -m robotos.app --cancel
 python -m robotos.app --preempt
 python -m robotos.app --target-gone
+python -m robotos.demo_agent_comm
 ```
 
 ## 启动 HTTP API
@@ -54,3 +55,8 @@ python -m pytest -q
 ## 家庭场景自动闭环示例
 
 - 当对话模块发布 `Event: TARGET_GONE`，且 payload 满足 `target in {son, child}`、`source in {mother,father,guardian,family_member}`、`confidence >= 0.7` 时，Strategy 会自动触发 `REQ_CANCEL` 并取消当前 session。
+
+
+## Agent 间通信可视化 Demo
+
+`python -m robotos.demo_agent_comm` 会运行 `TARGET_GONE` 场景，并输出 Message Stream 的时间线以及 Mermaid sequenceDiagram 文本，便于观察 agent 因果通信。

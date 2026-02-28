@@ -20,11 +20,13 @@ class StrategyPlugin:
         stream: MessageStream,
         on_replan: Callable[[str], None],
         on_cancel: Optional[Callable[[str, str], None]] = None,
+        agent_id: str = "strategy",
     ) -> None:
         self.stream = stream
         self.on_replan = on_replan
         self.on_cancel = on_cancel
-        stream.subscribe("*", self.on_message)
+        self.agent_id = agent_id
+        stream.subscribe("*", self.on_message, agent_id=agent_id)
 
     def on_message(self, msg: Message) -> None:
         """Handle stream messages and trigger strategy callbacks when matched."""
@@ -36,7 +38,8 @@ class StrategyPlugin:
                     session_id=msg.session_id,
                     trace_id=msg.trace_id,
                     payload={"reason": msg.topic},
-                )
+                ),
+                sender=self.agent_id,
             )
             self.on_replan(msg.session_id)
             return
@@ -57,7 +60,8 @@ class StrategyPlugin:
                         session_id=msg.session_id,
                         trace_id=msg.trace_id,
                         payload={"reason": "TARGET_GONE", "source": source, "confidence": confidence},
-                    )
+                    ),
+                    sender=self.agent_id,
                 )
                 if self.on_cancel:
                     self.on_cancel(msg.session_id, "TARGET_GONE")
