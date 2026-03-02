@@ -54,5 +54,5 @@ def build_default_agent_registry() -> AgentRegistry:
     reg.register(AgentDescriptor(agent_id="strategy", role="consumer", subscriptions=["*"], publish_allow=["Proposal", "Decision", "Escalation"]))
     reg.register(AgentDescriptor(agent_id="planner", role="consumer", subscriptions=["REQ_PLAN", "SUGGEST_REPLAN"], publish_allow=["Event"]))
     reg.register(AgentDescriptor(agent_id="control", role="consumer", subscriptions=["*"], publish_allow=["Event", "Request", "Proposal", "Decision", "Override", "Escalation"]))
-    reg.register(AgentDescriptor(agent_id="task_execution_agent", role="task", subscriptions=["*"], publish_allow=["Decision", "Event", "Proposal", "Request"]))
+    reg.register(AgentDescriptor(agent_id="task_execution_agent", role="task", subscriptions=["*"], publish_allow=["Decision", "Event", "Proposal", "Request", "Escalation"]))
     return reg

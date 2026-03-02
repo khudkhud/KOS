@@ -9,7 +9,8 @@ description = "RobotOS 1.3 vNext runtime"
 requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.110",
-  "uvicorn>=0.29"
+  "uvicorn>=0.29",
+  "jsonschema>=4.22"
 ]
 
 [tool.setuptools.packages.find]

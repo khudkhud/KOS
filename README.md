@@ -38,7 +38,12 @@ python -m robotos.cli replay --path /tmp/robotos_events.jsonl
 ROBOTOS_MESSAGE_PERSIST=/tmp/robotos_messages.jsonl python -m robotos.app
 ```
 
-启用后 `MessageStream` 会把消息写入本地 JSONL 日志；同机的其他进程可挂载同一路径并通过 `poll_new()` 增量消费，实现单机多进程协同与恢复。
+启用后 `MessageStream` 会把消息写入本地 JSONL 日志；同机的其他进程可挂载同一路径并通过 `poll_new(consumer_id=...)` 增量消费，实现单机多进程协同与恢复。
+
+P0 能力补充：
+- outbox：发布消息先入 outbox，再统一 flush。
+- event log replay：支持按日志偏移重放（`replay(from_line=...)`）。
+- 幂等消费键：每条消息包含 `idempotency_key`，消费者可持久化去重状态。
 
 ## Skill 进程化（真实 DDS 场景）
 

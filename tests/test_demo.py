@@ -17,7 +17,7 @@ from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import ToolRegistry
 from robotos.kernel.scheduler.mixed import MixedWorkloadScheduler
 from robotos.models import Message, Session, SessionState
-from robotos.schema_validate import SchemaValidationError
+from robotos.schema_validate import SchemaValidationError, validate
 from robotos.skills.ai_model_skills import DepthAnythingSkill, NavDPSkill, RoboBrainSkill, YOLOPerceptionServiceSkill
 
 
@@ -93,6 +93,65 @@ def test_message_stream_poll_new_for_cross_process_ipc(tmp_path: Path):
 
     assert consumed == 1
     assert seen == ["SUGGEST_REPLAN"]
+
+
+
+def test_message_stream_outbox_replay_and_idempotent_consume(tmp_path: Path):
+    persist = tmp_path / "messages.jsonl"
+    producer = MessageStream(registry=build_default_agent_registry(), persist_path=str(persist))
+    consumer = MessageStream(registry=build_default_agent_registry(), persist_path=str(persist))
+
+    seen: list[str] = []
+    consumer.subscribe("SUGGEST_REPLAN", lambda msg: seen.append(msg.correlation_id), agent_id="planner")
+
+    msg = Message(type="Event", topic="SUGGEST_REPLAN", session_id="S-1", payload={"reason": "new_obstacle"}, correlation_id="C-fixed")
+    producer.publish(msg, sender="monitor_agent")
+
+    # poll as durable consumer, then repoll should be idempotent due to key state
+    assert consumer.poll_new(consumer_id="planner_proc") == 1
+    assert consumer.poll_new(consumer_id="planner_proc") == 0
+    assert seen == ["C-fixed"]
+
+    # replay API provides event-log readback
+    replayed = consumer.replay(from_line=0, dispatch=False)
+    assert len(replayed) >= 1
+    assert replayed[0]["idempotency_key"] == "C-fixed"
+
+
+def test_schema_validation_engine_rejects_nested_type_violation():
+    bad_message = {
+        "type": "Event",
+        "topic": "TARGET_GONE",
+        "correlation_id": "C-1",
+        "payload": [],  # must be object
+        "ts": 1,
+    }
+    try:
+        validate(bad_message, "message.schema.json")
+        raise AssertionError("expected schema validation failure")
+    except SchemaValidationError:
+        pass
+
+
+def test_tool_contract_compatibility_with_major_wildcard():
+    reg = ToolRegistry.from_json_file("tool_registry.json")
+    spec = reg.negotiate("nav.goto", accepted_contracts=["1.x"])
+    assert spec.contract_version.startswith("1.")
+
+
+def test_task_agent_recovery_unknown_target_fallback_to_entrance():
+    sys = build_system()
+    api = sys["api"]
+    task_agent = sys["task_agent"]
+
+    session_id = api.post_sessions({"owner": "voice", "capabilities": ["NAV", "DIALOG"], "preemption_policy": "PAUSEABLE"})["session_id"]
+    task_agent.submit_long_nav_task(session_id, "nonexistent_room")
+
+    assert len(task_agent.task_reports) >= 1
+    report = task_agent.task_reports[-1]
+    assert report["success"] is True
+    assert report["target"] == "entrance"
+    assert report["recovery_action"] == "fallback_target"
 
 def test_tool_registry_file_load():
     reg = ToolRegistry.from_json_file("tool_registry.json")

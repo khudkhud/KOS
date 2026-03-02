@@ -72,9 +72,17 @@ class ToolRegistry:
             out.append(spec)
         return sorted(out, key=lambda x: x.tool)
 
+    @staticmethod
+    def _contract_compatible(available: str, accepted: str) -> bool:
+        if accepted == available:
+            return True
+        if accepted.endswith('.x'):
+            return available.split('.', 1)[0] == accepted.split('.', 1)[0]
+        return False
+
     def negotiate(self, name: str, accepted_contracts: List[str]) -> ToolSpec:
         spec = self.get(name)
-        if spec.contract_version not in accepted_contracts:
+        if not any(self._contract_compatible(spec.contract_version, a) for a in accepted_contracts):
             raise ValueError(f"tool {name} contract {spec.contract_version} is not compatible")
         return spec
 
