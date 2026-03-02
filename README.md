@@ -101,3 +101,14 @@ python -m robotos.app --build
 - PNA（Path & Navigation Agent）服务组件，用语义目标驱动路径与 waypoint 执行。
 - StateEstimator + SafetySupervisor 组件，执行前先做本体状态与安全闸门评估。
 - OSM → WorldMemory projection 管道，将事件账本投影为世界记忆查询视图。
+
+
+## 感知与规划网络接入策略（YOLO / DepthAnything / NavDP / RoboBrain）
+
+建议采用“算法形态与调用协议分离”的方式：
+- YOLO：周期型常驻 **Service**（持续感知，结果写入状态估计）
+- DepthAnything：按需 **Skill**（通过 Action 调用）
+- NavDP：按需 **Skill**（局部 waypoint 预测，通过 Action 调用）
+- RoboBrain：按需 **Skill**（任务规划，通过 Action 调用）
+
+其中 Action 统一承载超时、取消、重试与审计语义。

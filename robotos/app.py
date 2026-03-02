@@ -85,6 +85,10 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
         TimedSkillServer(broker, "nav.goto", duration_ms=1200),
         TimedSkillServer(broker, "dialog.say", duration_ms=500),
         TimedSkillServer(broker, "dialog.wait_reply", duration_ms=800),
+        TimedSkillServer(broker, "perception.yolo.detect", duration_ms=120),
+        TimedSkillServer(broker, "perception.depth_anything.estimate", duration_ms=700),
+        TimedSkillServer(broker, "navigation.navdp.predict_waypoint", duration_ms=300),
+        TimedSkillServer(broker, "planning.robobrain.plan", duration_ms=900),
     ]
 
     def spin_servers() -> None:

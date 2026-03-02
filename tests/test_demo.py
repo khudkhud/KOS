@@ -14,6 +14,7 @@ from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import ToolRegistry
 from robotos.models import Message
 from robotos.schema_validate import SchemaValidationError
+from robotos.skills.ai_model_skills import DepthAnythingSkill, NavDPSkill, RoboBrainSkill, YOLOSkill
 
 
 def test_demo_success():
@@ -183,3 +184,23 @@ def test_osm_world_projection_pipeline():
     ])
     assert report["session_count"] == 1
     assert memory.read_world_fact("session_summary")["S-1"]["state"] == "EXECUTING"
+
+
+def test_ai_model_skill_stubs():
+    yolo = YOLOSkill().infer({"frame": "mock"})
+    depth = DepthAnythingSkill().infer({"frame": "mock"})
+    navdp = NavDPSkill().infer({"rgb": "mock", "goal": "kitchen"})
+    brain = RoboBrainSkill().infer({"intent": "去厨房看看"})
+
+    assert yolo["mode"] == "periodic_service"
+    assert depth["mode"] == "on_demand_skill"
+    assert navdp["result"]["waypoint"].startswith("stub_")
+    assert brain["result"]["task_graph"].startswith("stub_")
+
+
+def test_registry_contains_ai_network_tools():
+    reg = ToolRegistry.from_json_file("tool_registry.json")
+    assert reg.get("perception.yolo.detect").capability == "PERCEPTION"
+    assert reg.get("perception.depth_anything.estimate").capability == "PERCEPTION"
+    assert reg.get("navigation.navdp.predict_waypoint").capability == "NAV"
+    assert reg.get("planning.robobrain.plan").capability == "PLANNING"
