@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PlanJson",
+  "type": "object",
+  "required": ["session_id", "plan_id", "root"],
+  "properties": {
+    "session_id": {"type": "string"},
+    "plan_id": {"type": "string"},
+    "trace_root": {"type": "string"},
+    "required_resources_hint": {"type": "array", "items": {"type": "string"}},
+    "root": {"type": "object"}
+  }
+}
