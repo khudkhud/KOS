@@ -71,7 +71,13 @@ class Executor:
                         return FAILURE
                 if not self.actions.can_dispatch(session.session_id):
                     return RUNNING
-                handle = self.actions.send_goal(session.session_id, node["tool"], node.get("args", {}))
+                try:
+                    handle = self.actions.send_goal(session.session_id, node["tool"], node.get("args", {}))
+                except RuntimeError as exc:
+                    if str(exc).startswith("HPU_BUSY"):
+                        # degrade policy: delay and retry in later ticks
+                        return RUNNING
+                    return FAILURE
                 rt.active_action[nid] = handle.action_id
                 return RUNNING
             result = self.actions.poll(aid)

@@ -34,6 +34,7 @@ from robotos.kernel.runtime import Kernel
 from robotos.embodied import NavigationGoal, PathNavigationAgent, RobotStateEstimator, SafetySupervisor
 from robotos.kernel.scheduler.mixed import MixedWorkloadScheduler, TaskSpec
 from robotos.models import Message, OSMEvent, SessionState
+from robotos.skills.ai_model_skills import YOLOPerceptionServiceSkill
 
 
 
@@ -81,17 +82,21 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
     registry = ToolRegistry.from_json_file(resolved.tool_registry_path)
 
     broker = create_broker(resolved.dds_backend)
+    yolo_service = YOLOPerceptionServiceSkill()
     servers: List[TimedSkillServer] = [
         TimedSkillServer(broker, "nav.goto", duration_ms=1200),
         TimedSkillServer(broker, "dialog.say", duration_ms=500),
         TimedSkillServer(broker, "dialog.wait_reply", duration_ms=800),
-        TimedSkillServer(broker, "perception.yolo.detect", duration_ms=120),
         TimedSkillServer(broker, "perception.depth_anything.estimate", duration_ms=700),
         TimedSkillServer(broker, "navigation.navdp.predict_waypoint", duration_ms=300),
         TimedSkillServer(broker, "planning.robobrain.plan", duration_ms=900),
     ]
 
     def spin_servers() -> None:
+        # YOLO runs as periodic perception service (not action-triggered).
+        yolo_out = yolo_service.infer({"frame": "stream"})
+        has_obstacle = bool(yolo_out.get("result", {}).get("detections"))
+        state_estimator.update(obstacle_nearby=has_obstacle)
         for server in servers:
             server.spin_once(step_ms=200)
         # cyclonedds broker has polling method
@@ -100,8 +105,19 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
             spin_once()
 
     leases = LeaseManager(osm)
+    scheduler = MixedWorkloadScheduler(
+        max_parallel_skill=resolved.embodiment.max_concurrent_actions,
+        max_parallel_model=resolved.embodiment.max_parallel_model_tasks,
+    )
+    state_estimator = RobotStateEstimator()
     dds_client = DDSActionClient(broker)
-    actions = ActionSupervisor(osm, dds_client, max_concurrent_actions=resolved.embodiment.max_concurrent_actions)
+    actions = ActionSupervisor(
+        osm,
+        dds_client,
+        max_concurrent_actions=resolved.embodiment.max_concurrent_actions,
+        scheduler=scheduler,
+        leases=leases,
+    )
     policy = PolicyGate(registry)
     kernel = Kernel(
         osm=osm,
@@ -113,18 +129,15 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
         max_session_runtime_ms=resolved.embodiment.max_session_runtime_ms,
         stale_action_timeout_ms=resolved.embodiment.stale_action_timeout_ms,
     )
+    api_state_estimator = state_estimator
     sessions = SessionService(osm, stream)
     api = ControlAPI(sessions)
     context_builder = ContextBuilder(osm)
     planner = PlannerClient()
     compiler = PlanCompiler(registry)
     memory = MemoryStore()
-    scheduler = MixedWorkloadScheduler(
-        max_parallel_skill=resolved.embodiment.max_concurrent_actions,
-        max_parallel_model=resolved.embodiment.max_parallel_model_tasks,
-    )
     pna = PathNavigationAgent(memory)
-    state_estimator = RobotStateEstimator()
+    state_estimator = api_state_estimator
     safety = SafetySupervisor(min_battery_percent=resolved.embodiment.min_battery_percent_to_start)
     projector = OSMWorldProjector(memory)
 

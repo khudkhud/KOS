@@ -112,3 +112,11 @@ python -m robotos.app --build
 - RoboBrain：按需 **Skill**（任务规划，通过 Action 调用）
 
 其中 Action 统一承载超时、取消、重试与审计语义。
+- Skill=能力，Service=运行形态，Action=调用协议。
+
+
+## HPU 资源协调策略
+
+- DepthAnything/NavDP/RoboBrain 统一声明 `required_resources=["hpu"]`，由 lease 保证物理互斥。
+- Action 下发前对 HPU 模型走双门控：先 scheduler 并发配额，再 lease 物理资源检查。
+- 门控失败返回 `HPU_BUSY` 并执行延迟重试（degrade policy）。

@@ -33,7 +33,7 @@ class BaseModelSkill:
         }
 
 
-class YOLOSkill(BaseModelSkill):
+class YOLOPerceptionServiceSkill(BaseModelSkill):
     def __init__(self) -> None:
         super().__init__(
             ModelSkillSpec(

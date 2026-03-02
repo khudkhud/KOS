@@ -1,5 +1,5 @@
 """Skill package exports."""
 
-from robotos.skills.ai_model_skills import DepthAnythingSkill, NavDPSkill, RoboBrainSkill, YOLOSkill
+from robotos.skills.ai_model_skills import DepthAnythingSkill, NavDPSkill, RoboBrainSkill, YOLOPerceptionServiceSkill
 
-__all__ = ["YOLOSkill", "DepthAnythingSkill", "NavDPSkill", "RoboBrainSkill"]
+__all__ = ["YOLOPerceptionServiceSkill", "DepthAnythingSkill", "NavDPSkill", "RoboBrainSkill"]

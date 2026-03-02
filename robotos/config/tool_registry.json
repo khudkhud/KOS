@@ -64,8 +64,7 @@
     "tool": "perception.depth_anything.estimate",
     "dds_action": "/perception_depth_anything_estimate/action",
     "required_resources": [
-      "camera",
-      "gpu"
+      "hpu"
     ],
     "capability": "PERCEPTION",
     "risk_class": "SAFE",
@@ -80,8 +79,7 @@
     "tool": "navigation.navdp.predict_waypoint",
     "dds_action": "/navigation_navdp_predict_waypoint/action",
     "required_resources": [
-      "base",
-      "gpu"
+      "hpu"
     ],
     "capability": "NAV",
     "risk_class": "SAFE",
@@ -96,8 +94,7 @@
     "tool": "planning.robobrain.plan",
     "dds_action": "/planning_robobrain_plan/action",
     "required_resources": [
-      "cpu",
-      "npu"
+      "hpu"
     ],
     "capability": "PLANNING",
     "risk_class": "SAFE",

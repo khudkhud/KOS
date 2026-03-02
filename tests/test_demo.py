@@ -14,7 +14,7 @@ from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import ToolRegistry
 from robotos.models import Message
 from robotos.schema_validate import SchemaValidationError
-from robotos.skills.ai_model_skills import DepthAnythingSkill, NavDPSkill, RoboBrainSkill, YOLOSkill
+from robotos.skills.ai_model_skills import DepthAnythingSkill, NavDPSkill, RoboBrainSkill, YOLOPerceptionServiceSkill
 
 
 def test_demo_success():
@@ -187,7 +187,7 @@ def test_osm_world_projection_pipeline():
 
 
 def test_ai_model_skill_stubs():
-    yolo = YOLOSkill().infer({"frame": "mock"})
+    yolo = YOLOPerceptionServiceSkill().infer({"frame": "mock"})
     depth = DepthAnythingSkill().infer({"frame": "mock"})
     navdp = NavDPSkill().infer({"rgb": "mock", "goal": "kitchen"})
     brain = RoboBrainSkill().infer({"intent": "去厨房看看"})
@@ -204,3 +204,10 @@ def test_registry_contains_ai_network_tools():
     assert reg.get("perception.depth_anything.estimate").capability == "PERCEPTION"
     assert reg.get("navigation.navdp.predict_waypoint").capability == "NAV"
     assert reg.get("planning.robobrain.plan").capability == "PLANNING"
+
+
+def test_hpu_resources_unified_in_registry():
+    reg = ToolRegistry.from_json_file("tool_registry.json")
+    assert reg.get("perception.depth_anything.estimate").required_resources == ["hpu"]
+    assert reg.get("navigation.navdp.predict_waypoint").required_resources == ["hpu"]
+    assert reg.get("planning.robobrain.plan").required_resources == ["hpu"]
