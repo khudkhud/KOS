@@ -126,4 +126,4 @@ python -m robotos.app --build
 
 - Skill：单一能力单元，偏“做一件事”（如 depth 推理、局部 waypoint 预测）。
 - Agent：长程任务编排单元，偏“完成一类任务生命周期”（如长程导航：目标解析→路径规划→执行→汇报）。
-- 在当前实现中，新增了 `TaskExecutionAgent` 与 `LongRangeNavigationAgent`，通过 MessageStream 的 `REQ_NAV_PLAN`/`NAV_EXEC_DONE` 完成跨 Agent 协作。
+- 在当前实现中，`TaskExecutionAgent` 作为任务编排的一等实体，直接组织长程导航并发布 `NAV_EXEC_DONE` 汇报，避免为单一链路引入额外 service-agent 封装。

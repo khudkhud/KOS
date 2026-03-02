@@ -257,6 +257,5 @@ def test_long_range_navigation_agent_orchestration():
     session_id = api.post_sessions({"owner": "voice", "capabilities": ["NAV", "DIALOG"], "preemption_policy": "PAUSEABLE"})["session_id"]
     task_agent.submit_long_nav_task(session_id, "child_room")
 
-    assert any(m["topic"] == "REQ_NAV_PLAN" for m in stream.history)
     assert any(m["topic"] == "NAV_EXEC_DONE" and m["type"] == "Decision" for m in stream.history)
     assert len(task_agent.task_reports) >= 1

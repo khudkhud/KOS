@@ -13,7 +13,7 @@ import os
 import time
 from typing import Any, Dict, List
 
-from robotos.control.agents import LongRangeNavigationAgent, TaskExecutionAgent
+from robotos.control.agents import TaskExecutionAgent
 from robotos.control.api.app import ControlAPI
 from robotos.control.context.builder import ContextBuilder
 from robotos.control.contracts import BehaviorContract, MotionContract, TaskContract, validate_stack
@@ -138,8 +138,7 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
     compiler = PlanCompiler(registry)
     memory = MemoryStore()
     pna = PathNavigationAgent(memory)
-    nav_agent = LongRangeNavigationAgent(stream, pna)
-    task_agent = TaskExecutionAgent(stream)
+    task_agent = TaskExecutionAgent(stream, pna)
     state_estimator = api_state_estimator
     safety = SafetySupervisor(min_battery_percent=resolved.embodiment.min_battery_percent_to_start)
     projector = OSMWorldProjector(memory)
@@ -164,7 +163,6 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
         "memory": memory,
         "scheduler": scheduler,
         "pna": pna,
-        "nav_agent": nav_agent,
         "task_agent": task_agent,
         "state_estimator": state_estimator,
         "safety": safety,
