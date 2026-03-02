@@ -92,3 +92,12 @@ python -m robotos.app --build
 - Explainable Trace：任务会写入 `EXPLAIN_TRACE` 事件，用于解释意图与计划阶段。
 - Memory OS 雏形：短期记忆、长期用户偏好、情景记忆，并支持过期清理与隐私擦除。
 - 模型+技能混部调度器：在资源受限硬件上限制并行模型/技能任务。
+
+
+## 三层控制与本体闭环（新增）
+
+本版新增了可执行的架构骨架：
+- Task ↔ Behavior ↔ Motion 分层契约（时延预算、错误码、可中断、运动安全参数）。
+- PNA（Path & Navigation Agent）服务组件，用语义目标驱动路径与 waypoint 执行。
+- StateEstimator + SafetySupervisor 组件，执行前先做本体状态与安全闸门评估。
+- OSM → WorldMemory projection 管道，将事件账本投影为世界记忆查询视图。

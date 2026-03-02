@@ -21,6 +21,13 @@ class MemoryStore:
         self.short_term: Dict[str, List[MemoryItem]] = {}
         self.long_term_user: Dict[str, Dict[str, Any]] = {}
         self.contextual: Dict[str, Dict[str, Any]] = {}
+        self.world_memory: Dict[str, Any] = {
+            "semantic_topology": {
+                "entrance": {"waypoints": ["hallway", "entrance"]},
+                "child_room": {"waypoints": ["hallway", "child_room"]},
+                "kitchen": {"waypoints": ["hallway", "kitchen"]},
+            }
+        }
 
     def write_short_term(self, session_id: str, key: str, value: Dict[str, Any], ttl_ms: int = 30 * 60 * 1000) -> None:
         self.short_term.setdefault(session_id, []).append(MemoryItem(key=key, value=value, ttl_ms=ttl_ms))
@@ -31,6 +38,13 @@ class MemoryStore:
 
     def write_context(self, location: str, payload: Dict[str, Any]) -> None:
         self.contextual[location] = payload
+
+
+    def write_world_fact(self, key: str, value: Any) -> None:
+        self.world_memory[key] = value
+
+    def read_world_fact(self, key: str, default: Any = None) -> Any:
+        return self.world_memory.get(key, default)
 
     def cleanup_expired(self, now: int | None = None) -> None:
         ts = now or now_ms()

@@ -2,10 +2,14 @@ import os
 from pathlib import Path
 
 from robotos.app import BuildOptions, EmbodimentProfile, build, run_demo
+from robotos.control.contracts import BehaviorContract, MotionContract, TaskContract, validate_stack
 from robotos.control.message.agents import build_default_agent_registry
 from robotos.control.message.stream import MessageStream
+from robotos.control.memory.store import MemoryStore
 from robotos.control.strategy.plugin import StrategyPlugin
+from robotos.control.world_memory import OSMWorldProjector
 from robotos.demo_agent_comm import run_agent_comm_demo
+from robotos.embodied import NavigationGoal, PathNavigationAgent, RobotStateEstimator, SafetySupervisor
 from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import ToolRegistry
 from robotos.models import Message
@@ -145,3 +149,37 @@ def test_run_demo_has_explain_trace_and_memory_snapshot():
     assert any(e["type"] == "EXPLAIN_TRACE" for e in out["events"])
     assert out["memory"]["long_term_users"] >= 1
     assert isinstance(out["governance"], list)
+    assert out["world_projection"]["session_count"] >= 1
+
+
+def test_layer_contract_validation():
+    stack = validate_stack(
+        TaskContract(task_type="safety_patrol", max_latency_ms=120000, safety_level="HOUSEHOLD", degrade_policy="retry"),
+        BehaviorContract(behavior_id="navigate_scan", expected_error_codes=["NAV_TIMEOUT"], timeout_ms=30000),
+        MotionContract(controller="local_planner", max_velocity=0.4, obstacle_clearance_m=0.2),
+    )
+    assert stack["task"].task_type == "safety_patrol"
+
+
+def test_pna_and_safety_supervisor_components():
+    memory = MemoryStore()
+    pna = PathNavigationAgent(memory)
+    nav = pna.plan_and_execute(NavigationGoal(semantic_target="entrance"))
+    assert nav.success is True
+
+    est = RobotStateEstimator()
+    est.update(battery_percent=10)
+    safety = SafetySupervisor(min_battery_percent=15)
+    decision = safety.evaluate(est.snapshot())
+    assert decision.allow_execute is False
+
+
+def test_osm_world_projection_pipeline():
+    memory = MemoryStore()
+    projector = OSMWorldProjector(memory)
+    report = projector.project([
+        {"type": "SESSION_STATE_CHANGED", "session_id": "S-1", "payload": {"state": "EXECUTING"}},
+        {"type": "ACTION_RESULT", "session_id": "S-1", "payload": {"status": "SUCCEEDED", "error_code": ""}},
+    ])
+    assert report["session_count"] == 1
+    assert memory.read_world_fact("session_summary")["S-1"]["state"] == "EXECUTING"

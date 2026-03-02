@@ -15,6 +15,7 @@ from typing import Any, Dict, List
 
 from robotos.control.api.app import ControlAPI
 from robotos.control.context.builder import ContextBuilder
+from robotos.control.contracts import BehaviorContract, MotionContract, TaskContract, validate_stack
 from robotos.control.message.agents import build_default_agent_registry
 from robotos.control.memory.store import MemoryStore
 from robotos.control.message.stream import MessageStream
@@ -22,6 +23,7 @@ from robotos.control.planner.client import PlannerClient
 from robotos.control.planner.compiler import PlanCompiler
 from robotos.control.session.service import SessionService
 from robotos.control.strategy.plugin import StrategyPlugin
+from robotos.control.world_memory import OSMWorldProjector
 from robotos.kernel.action.dds import DDSActionClient, TimedSkillServer, create_broker
 from robotos.kernel.action.supervisor import ActionSupervisor
 from robotos.kernel.executor.engine import Executor, RuntimeState
@@ -29,6 +31,7 @@ from robotos.kernel.lease.manager import LeaseManager
 from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import PolicyGate, ToolRegistry
 from robotos.kernel.runtime import Kernel
+from robotos.embodied import NavigationGoal, PathNavigationAgent, RobotStateEstimator, SafetySupervisor
 from robotos.kernel.scheduler.mixed import MixedWorkloadScheduler, TaskSpec
 from robotos.models import Message, OSMEvent, SessionState
 
@@ -116,6 +119,10 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
         max_parallel_skill=resolved.embodiment.max_concurrent_actions,
         max_parallel_model=resolved.embodiment.max_parallel_model_tasks,
     )
+    pna = PathNavigationAgent(memory)
+    state_estimator = RobotStateEstimator()
+    safety = SafetySupervisor(min_battery_percent=resolved.embodiment.min_battery_percent_to_start)
+    projector = OSMWorldProjector(memory)
 
     def on_replan(session_id: str) -> None:
         osm.append_event(OSMEvent(type="REQUEST_ENQUEUED", session_id=session_id, payload={"topic": "REQ_PLAN"}))
@@ -136,6 +143,10 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
         "compiler": compiler,
         "memory": memory,
         "scheduler": scheduler,
+        "pna": pna,
+        "state_estimator": state_estimator,
+        "safety": safety,
+        "projector": projector,
         "kernel": kernel,
     }
 
@@ -180,9 +191,14 @@ def build(options: BuildOptions | None = None) -> Dict[str, Any]:
         "ai_native_robotics": {
             "tool_contract_versioning": True,
             "governance_bus": True,
-            "memory_layers": ["short_term", "long_term_user", "contextual"],
+            "memory_layers": ["short_term", "long_term_user", "contextual", "world_memory"],
             "mixed_model_skill_scheduler": True,
             "explainable_trace": True,
+            "layered_control_contract": True,
+            "pna_service": True,
+            "safety_supervisor": True,
+            "state_estimator": True,
+            "osm_world_projection_pipeline": True,
         },
     }
     return {
@@ -216,6 +232,10 @@ def run_demo(
     compiler: PlanCompiler = system["compiler"]  # type: ignore[assignment]
     memory: MemoryStore = system["memory"]  # type: ignore[assignment]
     scheduler: MixedWorkloadScheduler = system["scheduler"]  # type: ignore[assignment]
+    pna: PathNavigationAgent = system["pna"]  # type: ignore[assignment]
+    state_estimator: RobotStateEstimator = system["state_estimator"]  # type: ignore[assignment]
+    safety: SafetySupervisor = system["safety"]  # type: ignore[assignment]
+    projector: OSMWorldProjector = system["projector"]  # type: ignore[assignment]
     kernel: Kernel = system["kernel"]  # type: ignore[assignment]
 
     session_id = api.post_sessions({"owner": "voice", "capabilities": ["NAV", "DIALOG"], "preemption_policy": "PAUSEABLE"})["session_id"]
@@ -224,6 +244,26 @@ def run_demo(
     memory.write_short_term(session_id, "intent", intent)
     memory.write_long_term_user_pref("voice", "preferred_language", "zh")
     memory.write_context("home", {"battery_percent": 78, "network": "online"})
+
+    contracts = validate_stack(
+        TaskContract(task_type="multi_step_home_task", max_latency_ms=120_000, safety_level="HOUSEHOLD", degrade_policy="retry_then_escalate"),
+        BehaviorContract(behavior_id="navigate_scan_report", expected_error_codes=["NAV_TIMEOUT", "NAV_BLOCKED"], interruptible=True, timeout_ms=30_000),
+        MotionContract(controller="local_planner_v1", max_velocity=0.4, obstacle_clearance_m=0.25),
+    )
+    osm.append_event(OSMEvent(type="LAYER_CONTRACT_BOUND", session_id=session_id, payload={
+        "task_type": contracts["task"].task_type,
+        "behavior_id": contracts["behavior"].behavior_id,
+        "controller": contracts["motion"].controller,
+    }))
+
+    state_estimator.update(battery_percent=78, localization_confidence=0.93, obstacle_nearby=False)
+    safety_decision = safety.evaluate(state_estimator.snapshot())
+    if not safety_decision.allow_execute:
+        osm.apply_patch({"type": "session_state", "session_id": session_id, "state": SessionState.FAILED.value, "last_error": {"code": "SAFETY_BLOCK", "msg": safety_decision.reason}})
+        return {"session": osm.get()["session_projection"][session_id], "events": [e.__dict__ for e in osm.event_log], "messages": list(stream.history), "governance": list(stream.governance_log), "memory": {"short_term_sessions": len(memory.short_term), "long_term_users": len(memory.long_term_user), "context_locations": len(memory.contextual)}}
+
+    nav_result = pna.plan_and_execute(NavigationGoal(semantic_target="child_room", constraints={"avoid_private_rooms": False}))
+    osm.append_event(OSMEvent(type="PNA_NAVIGATION_RESULT", session_id=session_id, payload={"success": nav_result.success, "path": nav_result.global_path, "reason": nav_result.reason}))
 
     model_task = TaskSpec(name="intent-parse", task_type="model", priority=5)
     if scheduler.start(model_task):
@@ -268,8 +308,9 @@ def run_demo(
         if cancel_midway and ticks == 3:
             api.post_cancel(session_id)
         time.sleep(0.03)
+    projection = projector.project([e.__dict__ for e in osm.event_log])
     memory.cleanup_expired()
-    return {"session": osm.get()["session_projection"][session_id], "events": [e.__dict__ for e in osm.event_log], "messages": list(stream.history), "governance": list(stream.governance_log), "memory": {"short_term_sessions": len(memory.short_term), "long_term_users": len(memory.long_term_user), "context_locations": len(memory.contextual)}}
+    return {"session": osm.get()["session_projection"][session_id], "events": [e.__dict__ for e in osm.event_log], "messages": list(stream.history), "governance": list(stream.governance_log), "memory": {"short_term_sessions": len(memory.short_term), "long_term_users": len(memory.long_term_user), "context_locations": len(memory.contextual), "world_keys": len(memory.world_memory)}, "world_projection": projection}
 
 
 def main() -> None:
