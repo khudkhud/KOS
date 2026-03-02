@@ -32,6 +32,14 @@ ROBOTOS_OSM_PERSIST=/tmp/robotos_events.jsonl python -m robotos.app
 python -m robotos.cli replay --path /tmp/robotos_events.jsonl
 ```
 
+## 同机多进程消息协同（新增）
+
+```bash
+ROBOTOS_MESSAGE_PERSIST=/tmp/robotos_messages.jsonl python -m robotos.app
+```
+
+启用后 `MessageStream` 会把消息写入本地 JSONL 日志；同机的其他进程可挂载同一路径并通过 `poll_new()` 增量消费，实现单机多进程协同与恢复。
+
 ## Skill 进程化（真实 DDS 场景）
 
 ```bash

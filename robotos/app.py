@@ -62,6 +62,7 @@ class BuildOptions:
     dds_backend: str = "inmemory"
     persist_path: str | None = None
     tool_registry_path: str = "tool_registry.json"
+    message_persist_path: str | None = None
     embodiment: EmbodimentProfile = EmbodimentProfile()
 
 
@@ -71,6 +72,7 @@ def _resolve_build_options(options: BuildOptions | None = None) -> BuildOptions:
     return BuildOptions(
         dds_backend=os.getenv("ROBOTOS_DDS_BACKEND", "inmemory"),
         persist_path=os.getenv("ROBOTOS_OSM_PERSIST"),
+        message_persist_path=os.getenv("ROBOTOS_MESSAGE_PERSIST"),
     )
 
 
@@ -79,7 +81,7 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
     resolved = _resolve_build_options(options)
     osm = OSMStore(persist_path=resolved.persist_path)
     agent_registry = build_default_agent_registry()
-    stream = MessageStream(registry=agent_registry)
+    stream = MessageStream(registry=agent_registry, persist_path=resolved.message_persist_path)
     registry = ToolRegistry.from_json_file(resolved.tool_registry_path)
 
     broker = create_broker(resolved.dds_backend)
@@ -191,6 +193,7 @@ def build(options: BuildOptions | None = None) -> Dict[str, Any]:
             "dds_backend": resolved.dds_backend,
             "supports_http_api": True,
             "supports_osm_persist": bool(resolved.persist_path),
+            "supports_message_persist": bool(resolved.message_persist_path),
         },
         "frontier": {
             "two_phase_preempt": True,

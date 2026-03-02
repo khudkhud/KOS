@@ -67,6 +67,33 @@ def test_message_schema_validation():
         pass
 
 
+
+
+def test_message_stream_persist_and_recover(tmp_path: Path):
+    persist = tmp_path / "messages.jsonl"
+    stream1 = MessageStream(registry=build_default_agent_registry(), persist_path=str(persist))
+    stream1.publish(Message(type="Event", topic="TARGET_GONE", session_id="S-1", payload={"target": "son"}), sender="monitor_agent")
+
+    # new process instance can recover history from disk
+    stream2 = MessageStream(registry=build_default_agent_registry(), persist_path=str(persist))
+    assert len(stream2.history) == 1
+    assert stream2.history[0]["topic"] == "TARGET_GONE"
+
+
+def test_message_stream_poll_new_for_cross_process_ipc(tmp_path: Path):
+    persist = tmp_path / "messages.jsonl"
+    producer = MessageStream(registry=build_default_agent_registry(), persist_path=str(persist))
+    consumer = MessageStream(registry=build_default_agent_registry(), persist_path=str(persist))
+
+    seen: list[str] = []
+    consumer.subscribe("SUGGEST_REPLAN", lambda msg: seen.append(msg.topic), agent_id="planner")
+
+    producer.publish(Message(type="Event", topic="SUGGEST_REPLAN", session_id="S-1", payload={"reason": "new_obstacle"}), sender="monitor_agent")
+    consumed = consumer.poll_new()
+
+    assert consumed == 1
+    assert seen == ["SUGGEST_REPLAN"]
+
 def test_tool_registry_file_load():
     reg = ToolRegistry.from_json_file("tool_registry.json")
     assert reg.get("nav.goto").capability == "NAV"
