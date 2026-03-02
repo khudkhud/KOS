@@ -13,6 +13,7 @@ import os
 import time
 from typing import Any, Dict, List
 
+from robotos.control.agents import LongRangeNavigationAgent, TaskExecutionAgent
 from robotos.control.api.app import ControlAPI
 from robotos.control.context.builder import ContextBuilder
 from robotos.control.contracts import BehaviorContract, MotionContract, TaskContract, validate_stack
@@ -137,6 +138,8 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
     compiler = PlanCompiler(registry)
     memory = MemoryStore()
     pna = PathNavigationAgent(memory)
+    nav_agent = LongRangeNavigationAgent(stream, pna)
+    task_agent = TaskExecutionAgent(stream)
     state_estimator = api_state_estimator
     safety = SafetySupervisor(min_battery_percent=resolved.embodiment.min_battery_percent_to_start)
     projector = OSMWorldProjector(memory)
@@ -161,6 +164,8 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
         "memory": memory,
         "scheduler": scheduler,
         "pna": pna,
+        "nav_agent": nav_agent,
+        "task_agent": task_agent,
         "state_estimator": state_estimator,
         "safety": safety,
         "projector": projector,
@@ -250,6 +255,7 @@ def run_demo(
     memory: MemoryStore = system["memory"]  # type: ignore[assignment]
     scheduler: MixedWorkloadScheduler = system["scheduler"]  # type: ignore[assignment]
     pna: PathNavigationAgent = system["pna"]  # type: ignore[assignment]
+    task_agent: TaskExecutionAgent = system["task_agent"]  # type: ignore[assignment]
     state_estimator: RobotStateEstimator = system["state_estimator"]  # type: ignore[assignment]
     safety: SafetySupervisor = system["safety"]  # type: ignore[assignment]
     projector: OSMWorldProjector = system["projector"]  # type: ignore[assignment]
@@ -281,6 +287,7 @@ def run_demo(
 
     nav_result = pna.plan_and_execute(NavigationGoal(semantic_target="child_room", constraints={"avoid_private_rooms": False}))
     osm.append_event(OSMEvent(type="PNA_NAVIGATION_RESULT", session_id=session_id, payload={"success": nav_result.success, "path": nav_result.global_path, "reason": nav_result.reason}))
+    task_agent.submit_long_nav_task(session_id, "child_room")
 
     model_task = TaskSpec(name="intent-parse", task_type="model", priority=5)
     if scheduler.start(model_task):
@@ -327,7 +334,7 @@ def run_demo(
         time.sleep(0.03)
     projection = projector.project([e.__dict__ for e in osm.event_log])
     memory.cleanup_expired()
-    return {"session": osm.get()["session_projection"][session_id], "events": [e.__dict__ for e in osm.event_log], "messages": list(stream.history), "governance": list(stream.governance_log), "memory": {"short_term_sessions": len(memory.short_term), "long_term_users": len(memory.long_term_user), "context_locations": len(memory.contextual), "world_keys": len(memory.world_memory)}, "world_projection": projection}
+    return {"session": osm.get()["session_projection"][session_id], "events": [e.__dict__ for e in osm.event_log], "messages": list(stream.history), "governance": list(stream.governance_log), "task_reports": list(task_agent.task_reports), "memory": {"short_term_sessions": len(memory.short_term), "long_term_users": len(memory.long_term_user), "context_locations": len(memory.contextual), "world_keys": len(memory.world_memory)}, "world_projection": projection}
 
 
 def main() -> None:

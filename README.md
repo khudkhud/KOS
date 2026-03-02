@@ -120,3 +120,10 @@ python -m robotos.app --build
 - DepthAnything/NavDP/RoboBrain 统一声明 `required_resources=["hpu"]`，由 lease 保证物理互斥。
 - Action 下发前对 HPU 模型走双门控：先 scheduler 并发配额，再 lease 物理资源检查。
 - 门控冲突时采用“排队+优先级让位”策略：同优先级排队等待，高优先级可触发低优先级让位，并执行延迟重试（degrade policy）。
+
+
+## Agent 与 Skill 的职责边界（新增）
+
+- Skill：单一能力单元，偏“做一件事”（如 depth 推理、局部 waypoint 预测）。
+- Agent：长程任务编排单元，偏“完成一类任务生命周期”（如长程导航：目标解析→路径规划→执行→汇报）。
+- 在当前实现中，新增了 `TaskExecutionAgent` 与 `LongRangeNavigationAgent`，通过 MessageStream 的 `REQ_NAV_PLAN`/`NAV_EXEC_DONE` 完成跨 Agent 协作。

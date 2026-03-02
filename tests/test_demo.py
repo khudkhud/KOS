@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from robotos.app import BuildOptions, EmbodimentProfile, build, run_demo
+from robotos.app import BuildOptions, EmbodimentProfile, build, build_system, run_demo
 from robotos.control.contracts import BehaviorContract, MotionContract, TaskContract, validate_stack
 from robotos.control.message.agents import build_default_agent_registry
 from robotos.control.message.stream import MessageStream
@@ -155,6 +155,7 @@ def test_run_demo_has_explain_trace_and_memory_snapshot():
     assert out["memory"]["long_term_users"] >= 1
     assert isinstance(out["governance"], list)
     assert out["world_projection"]["session_count"] >= 1
+    assert isinstance(out["task_reports"], list)
 
 
 def test_layer_contract_validation():
@@ -245,3 +246,17 @@ def test_hpu_queue_and_priority_preempt():
         raise AssertionError("expected queued signal")
     except RuntimeError as exc:
         assert str(exc).startswith("HPU_QUEUED")
+
+
+def test_long_range_navigation_agent_orchestration():
+    sys = build_system()
+    api = sys["api"]
+    task_agent = sys["task_agent"]
+    stream = sys["stream"]
+
+    session_id = api.post_sessions({"owner": "voice", "capabilities": ["NAV", "DIALOG"], "preemption_policy": "PAUSEABLE"})["session_id"]
+    task_agent.submit_long_nav_task(session_id, "child_room")
+
+    assert any(m["topic"] == "REQ_NAV_PLAN" for m in stream.history)
+    assert any(m["topic"] == "NAV_EXEC_DONE" and m["type"] == "Decision" for m in stream.history)
+    assert len(task_agent.task_reports) >= 1
