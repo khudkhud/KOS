@@ -304,6 +304,26 @@ def test_hpu_resources_unified_in_registry():
     assert reg.get("planning.robobrain.plan").required_resources == ["hpu"]
 
 
+
+
+def test_navdp_degrades_to_logic_when_hpu_busy():
+    osm = OSMStore()
+    s = Session(session_id="S-1", owner="o", priority=1, capabilities=["NAV"], state=SessionState.EXECUTING)
+    holder = Session(session_id="S-hold", owner="o", priority=1, capabilities=["NAV"], state=SessionState.EXECUTING)
+    osm.apply_patch({"type": "session_upsert", "session": s})
+    osm.apply_patch({"type": "session_upsert", "session": holder})
+
+    leases = LeaseManager(osm)
+    leases.acquire(["hpu"], "S-hold", ttl_ms=5000)
+
+    scheduler = MixedWorkloadScheduler(max_parallel_model=1)
+    reg = ToolRegistry.from_json_file("tool_registry.json")
+    sup = ActionSupervisor(osm, DDSActionClient(InMemoryDDSBroker()), scheduler=scheduler, leases=leases, tool_registry=reg)
+
+    h = sup.send_goal("S-1", "navigation.navdp.predict_waypoint", {"goal": "kitchen"})
+    assert h.tool == "navigation.navdp.logic_predict_waypoint"
+    assert any(e.type == "MODEL_DEGRADE_FALLBACK" for e in osm.event_log)
+
 def test_hpu_queue_and_priority_preempt():
     osm = OSMStore()
     low = Session(session_id="S-low", owner="o", priority=1, capabilities=["NAV"], state=SessionState.EXECUTING)

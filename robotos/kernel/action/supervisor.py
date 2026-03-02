@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from robotos.kernel.action.dds import ActionHeader, Cancel, DDSActionClient, Goal, result_to_action_result
 from robotos.kernel.lease.manager import LeaseManager
 from robotos.kernel.osm.store import OSMStore
+from robotos.kernel.policy.gate import ToolRegistry
 from robotos.kernel.scheduler.mixed import MixedWorkloadScheduler, TaskSpec
 from robotos.models import ActionResult, OSMEvent, new_id, now_ms
 
@@ -38,6 +39,7 @@ class ActionSupervisor:
         max_concurrent_actions: int = 2,
         scheduler: MixedWorkloadScheduler | None = None,
         leases: LeaseManager | None = None,
+        tool_registry: ToolRegistry | None = None,
     ) -> None:
         self.osm = osm
         self.dds_client = dds_client
@@ -48,6 +50,7 @@ class ActionSupervisor:
         self.session_epoch: Dict[str, int] = {}
         self._model_jobs: Dict[str, TaskSpec] = {}
         self._pending_hpu: list[dict[str, Any]] = []
+        self.tool_registry = tool_registry
 
     def next_epoch(self, session_id: str) -> int:
         self.session_epoch[session_id] = self.session_epoch.get(session_id, 0) + 1
@@ -141,6 +144,32 @@ class ActionSupervisor:
             )
         )
 
+
+    def _resolve_degrade_fallback(self, tool: str) -> str | None:
+        if not self.tool_registry:
+            return None
+        try:
+            spec = self.tool_registry.get(tool)
+        except KeyError:
+            return None
+        fallback = (spec.degrade_fallback_tool or "").strip()
+        if not fallback or fallback == tool:
+            return None
+        return fallback
+
+    def _dispatch_with_degrade(self, *, session_id: str, tool: str, args: Dict[str, Any], reason: str, plan_id: str, trace_id: str) -> ActionHandle:
+        fallback = self._resolve_degrade_fallback(tool)
+        if not fallback:
+            raise RuntimeError(reason)
+        self.osm.append_event(
+            OSMEvent(
+                type="MODEL_DEGRADE_FALLBACK",
+                session_id=session_id,
+                payload={"from_tool": tool, "to_tool": fallback, "reason": reason},
+            )
+        )
+        return self.send_goal(session_id, fallback, args, plan_id=plan_id, trace_id=trace_id)
+
     def can_dispatch(self, session_id: str) -> bool:
         active_for_session = sum(1 for h in self.active.values() if h.session_id == session_id)
         return active_for_session < self.max_concurrent_actions
@@ -166,13 +195,16 @@ class ActionSupervisor:
             token = self._enqueue_hpu(session_id, tool, args)
             self._maybe_preempt_hpu_owner(session_id)
             if token != self._queue_head_token():
-                raise RuntimeError("HPU_QUEUED: waiting higher-priority jobs")
+                self._pop_queue_token(token)
+                return self._dispatch_with_degrade(session_id=session_id, tool=tool, args=args, reason="HPU_QUEUED: waiting higher-priority jobs", plan_id=plan_id, trace_id=trace_id)
             if not self._check_hpu_physical_gate(session_id):
-                raise RuntimeError("HPU_QUEUED: waiting hpu lease")
+                self._pop_queue_token(token)
+                return self._dispatch_with_degrade(session_id=session_id, tool=tool, args=args, reason="HPU_QUEUED: waiting hpu lease", plan_id=plan_id, trace_id=trace_id)
             if self.scheduler:
                 job = TaskSpec(name=tool, task_type="model", priority=5, est_latency_ms=300)
                 if not self.scheduler.start(job):
-                    raise RuntimeError("HPU_QUEUED: scheduler quota exceeded")
+                    self._pop_queue_token(token)
+                    return self._dispatch_with_degrade(session_id=session_id, tool=tool, args=args, reason="HPU_QUEUED: scheduler quota exceeded", plan_id=plan_id, trace_id=trace_id)
             else:
                 job = None
             self._pop_queue_token(token)

@@ -27,6 +27,7 @@ class ToolSpec:
     idempotent: bool = False
     compensation_tool: str = ""
     rollout_stage: str = "ga"
+    degrade_fallback_tool: str = ""
 
 
 class ToolRegistry:
@@ -53,6 +54,7 @@ class ToolRegistry:
                     idempotent=bool(entry.get("idempotent", False)),
                     compensation_tool=str(entry.get("compensation_tool", "")),
                     rollout_stage=str(entry.get("rollout_stage", "ga")),
+                    degrade_fallback_tool=str(entry.get("degrade_fallback_tool", "")),
                 )
             )
         return cls(specs)

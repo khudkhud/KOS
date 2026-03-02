@@ -88,7 +88,8 @@
     "contract_version": "1.0",
     "idempotent": false,
     "compensation_tool": "",
-    "rollout_stage": "beta"
+    "rollout_stage": "beta",
+    "degrade_fallback_tool": "navigation.navdp.logic_predict_waypoint"
   },
   {
     "tool": "planning.robobrain.plan",
@@ -104,5 +105,20 @@
     "idempotent": true,
     "compensation_tool": "",
     "rollout_stage": "beta"
+  },
+  {
+    "tool": "navigation.navdp.logic_predict_waypoint",
+    "dds_action": "/navigation_navdp_logic_predict_waypoint/action",
+    "required_resources": [
+      "cpu"
+    ],
+    "capability": "NAV",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 100,
+    "timeout_default_ms": 1500,
+    "contract_version": "1.0",
+    "idempotent": true,
+    "compensation_tool": "",
+    "rollout_stage": "ga"
   }
 ]

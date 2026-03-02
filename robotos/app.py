@@ -92,6 +92,7 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
         TimedSkillServer(broker, "dialog.wait_reply", duration_ms=800),
         TimedSkillServer(broker, "perception.depth_anything.estimate", duration_ms=700),
         TimedSkillServer(broker, "navigation.navdp.predict_waypoint", duration_ms=300),
+        TimedSkillServer(broker, "navigation.navdp.logic_predict_waypoint", duration_ms=120),
         TimedSkillServer(broker, "planning.robobrain.plan", duration_ms=900),
     ]
 
@@ -120,6 +121,7 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
         max_concurrent_actions=resolved.embodiment.max_concurrent_actions,
         scheduler=scheduler,
         leases=leases,
+        tool_registry=registry,
     )
     policy = PolicyGate(registry)
     kernel = Kernel(
