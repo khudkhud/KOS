@@ -73,3 +73,12 @@ python -m robotos.app --build
 - `practicality`：落地实用能力（HTTP、持久化、可选 DDS backend）
 - `frontier`：前沿执行语义（两阶段抢占、epoch fencing、checkpoint/restore）
 - `extensibility`：扩展能力（可插拔 backend、文件化注册表、消息流与 agent 注册）
+
+
+## 家庭实体机器人资源与可靠执行约束
+
+当前 build 默认加入了实体机器人约束配置（可在 `BuildOptions` 中覆盖）：
+- 会话最大执行时长预算（防止长程任务失控）
+- 动作陈旧超时（反馈/结果长期缺失时主动失败收敛）
+- 单 session 最大并发动作数（受限算力/功耗下的保守调度）
+- 最低启动电量阈值（用于上层策略接入）

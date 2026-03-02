@@ -69,6 +69,8 @@ class Executor:
                 for r in spec.required_resources:
                     if r not in self.leases.by_resource:
                         return FAILURE
+                if not self.actions.can_dispatch(session.session_id):
+                    return RUNNING
                 handle = self.actions.send_goal(session.session_id, node["tool"], node.get("args", {}))
                 rt.active_action[nid] = handle.action_id
                 return RUNNING

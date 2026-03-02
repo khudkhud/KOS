@@ -6,7 +6,7 @@ handles cancel/preempt convergence, and snapshots checkpoints.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 from typing import Any, Callable, Dict, Optional
 
@@ -28,12 +28,33 @@ class Kernel:
     leases: LeaseManager
     policy: PolicyGate
     spin_io: Optional[Callable[[], None]] = None
+    max_session_runtime_ms: int = 30 * 60 * 1000
+    stale_action_timeout_ms: int = 90 * 1000
+    session_started_at: Dict[str, int] = field(default_factory=dict)
 
     def run_tick(self, session_id: str, exec_graph: Dict[str, Any], rt: RuntimeState) -> str:
         """Run one deterministic tick for a session execution graph."""
         if self.spin_io:
             self.spin_io()
         session = self.osm.session_projection[session_id]
+        now = now_ms()
+        self.session_started_at.setdefault(session_id, now)
+        if now - self.session_started_at[session_id] > self.max_session_runtime_ms:
+            self.actions.cancel_session(session_id, reason="max_session_runtime_exceeded")
+            self._release_all(session_id)
+            self.osm.apply_patch({"type": "session_state", "session_id": session_id, "state": SessionState.FAILED.value, "last_error": {"code": "MAX_RUNTIME", "msg": "session runtime exceeded budget"}})
+            self.osm.append_event(OSMEvent(type="SESSION_STATE_CHANGED", session_id=session_id, payload={"state": "FAILED", "reason": "max_runtime"}))
+            return FAILURE
+
+        stale_actions = self.actions.stale_actions(session_id, now, self.stale_action_timeout_ms)
+        if stale_actions:
+            for aid in stale_actions:
+                self.actions.cancel(aid, reason="stale_action_timeout")
+            self._release_all(session_id)
+            self.osm.apply_patch({"type": "session_state", "session_id": session_id, "state": SessionState.FAILED.value, "last_error": {"code": "ACTION_STALE", "msg": "action heartbeat/result timeout"}})
+            self.osm.append_event(OSMEvent(type="SESSION_STATE_CHANGED", session_id=session_id, payload={"state": "FAILED", "reason": "action_stale"}))
+            return FAILURE
+
         if session.state == SessionState.PAUSED:
             return "PAUSED"
         if session.state == SessionState.CANCELING:

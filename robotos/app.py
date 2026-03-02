@@ -31,6 +31,18 @@ from robotos.kernel.runtime import Kernel
 from robotos.models import Message, OSMEvent, SessionState
 
 
+
+
+@dataclass(frozen=True)
+class EmbodimentProfile:
+    """Resource constraints for a household embodied mobile robot."""
+
+    max_concurrent_actions: int = 2
+    max_session_runtime_ms: int = 45 * 60 * 1000
+    stale_action_timeout_ms: int = 120 * 1000
+    min_battery_percent_to_start: int = 15
+
+
 @dataclass(frozen=True)
 class BuildOptions:
     """Composable build options for runtime assembly.
@@ -42,6 +54,7 @@ class BuildOptions:
     dds_backend: str = "inmemory"
     persist_path: str | None = None
     tool_registry_path: str = "tool_registry.json"
+    embodiment: EmbodimentProfile = EmbodimentProfile()
 
 
 def _resolve_build_options(options: BuildOptions | None = None) -> BuildOptions:
@@ -78,9 +91,18 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
 
     leases = LeaseManager(osm)
     dds_client = DDSActionClient(broker)
-    actions = ActionSupervisor(osm, dds_client)
+    actions = ActionSupervisor(osm, dds_client, max_concurrent_actions=resolved.embodiment.max_concurrent_actions)
     policy = PolicyGate(registry)
-    kernel = Kernel(osm=osm, executor=Executor(policy, leases, actions), actions=actions, leases=leases, policy=policy, spin_io=spin_servers)
+    kernel = Kernel(
+        osm=osm,
+        executor=Executor(policy, leases, actions),
+        actions=actions,
+        leases=leases,
+        policy=policy,
+        spin_io=spin_servers,
+        max_session_runtime_ms=resolved.embodiment.max_session_runtime_ms,
+        stale_action_timeout_ms=resolved.embodiment.stale_action_timeout_ms,
+    )
     sessions = SessionService(osm, stream)
     api = ControlAPI(sessions)
     context_builder = ContextBuilder(osm)
@@ -138,6 +160,12 @@ def build(options: BuildOptions | None = None) -> Dict[str, Any]:
             "pluggable_dds_backend": True,
             "file_tool_registry": resolved.tool_registry_path,
             "message_stream_agent_registry": True,
+        },
+        "embodied_reliability": {
+            "max_concurrent_actions": resolved.embodiment.max_concurrent_actions,
+            "max_session_runtime_ms": resolved.embodiment.max_session_runtime_ms,
+            "stale_action_timeout_ms": resolved.embodiment.stale_action_timeout_ms,
+            "min_battery_percent_to_start": resolved.embodiment.min_battery_percent_to_start,
         },
     }
     return {

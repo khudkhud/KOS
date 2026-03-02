@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from robotos.app import BuildOptions, build, run_demo
+from robotos.app import BuildOptions, EmbodimentProfile, build, run_demo
 from robotos.control.message.agents import build_default_agent_registry
 from robotos.control.message.stream import MessageStream
 from robotos.demo_agent_comm import run_agent_comm_demo
@@ -100,3 +100,12 @@ def test_build_assessment_report():
     assert out["assessment"]["practicality"]["dds_backend"] == "inmemory"
     assert "kernel" in out["components"]
     assert out["assessment"]["extensibility"]["pluggable_dds_backend"] is True
+
+
+def test_build_embodiment_profile():
+    out = build(BuildOptions(embodiment=EmbodimentProfile(max_concurrent_actions=1, max_session_runtime_ms=123000, stale_action_timeout_ms=45000, min_battery_percent_to_start=25)))
+    rel = out["assessment"]["embodied_reliability"]
+    assert rel["max_concurrent_actions"] == 1
+    assert rel["max_session_runtime_ms"] == 123000
+    assert rel["stale_action_timeout_ms"] == 45000
+    assert rel["min_battery_percent_to_start"] == 25

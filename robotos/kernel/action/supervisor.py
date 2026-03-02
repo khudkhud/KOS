@@ -28,9 +28,10 @@ class ActionHandle:
 class ActionSupervisor:
     """Supervise action lifecycle and protect against stale epochs."""
 
-    def __init__(self, osm: OSMStore, dds_client: DDSActionClient) -> None:
+    def __init__(self, osm: OSMStore, dds_client: DDSActionClient, max_concurrent_actions: int = 2) -> None:
         self.osm = osm
         self.dds_client = dds_client
+        self.max_concurrent_actions = max_concurrent_actions
         self.active: Dict[str, ActionHandle] = {}
         self.session_epoch: Dict[str, int] = {}
 
@@ -40,6 +41,18 @@ class ActionSupervisor:
 
     def current_epoch(self, session_id: str) -> int:
         return self.session_epoch.get(session_id, self.osm.session_projection.get(session_id).action_epoch if session_id in self.osm.session_projection else 0)
+
+
+    def can_dispatch(self, session_id: str) -> bool:
+        active_for_session = sum(1 for h in self.active.values() if h.session_id == session_id)
+        return active_for_session < self.max_concurrent_actions
+
+    def stale_actions(self, session_id: str, now: int, timeout_ms: int) -> list[str]:
+        out: list[str] = []
+        for aid, handle in self.active.items():
+            if handle.session_id == session_id and now - handle.started_at > timeout_ms:
+                out.append(aid)
+        return out
 
     def send_goal(self, session_id: str, tool: str, args: Dict[str, Any], plan_id: str = "", trace_id: str = "") -> ActionHandle:
         """Dispatch a new action goal over DDS action transport."""
