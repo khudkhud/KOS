@@ -16,6 +16,7 @@ from typing import Any, Dict, List
 from robotos.control.api.app import ControlAPI
 from robotos.control.context.builder import ContextBuilder
 from robotos.control.message.agents import build_default_agent_registry
+from robotos.control.memory.store import MemoryStore
 from robotos.control.message.stream import MessageStream
 from robotos.control.planner.client import PlannerClient
 from robotos.control.planner.compiler import PlanCompiler
@@ -28,6 +29,7 @@ from robotos.kernel.lease.manager import LeaseManager
 from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import PolicyGate, ToolRegistry
 from robotos.kernel.runtime import Kernel
+from robotos.kernel.scheduler.mixed import MixedWorkloadScheduler, TaskSpec
 from robotos.models import Message, OSMEvent, SessionState
 
 
@@ -41,6 +43,7 @@ class EmbodimentProfile:
     max_session_runtime_ms: int = 45 * 60 * 1000
     stale_action_timeout_ms: int = 120 * 1000
     min_battery_percent_to_start: int = 15
+    max_parallel_model_tasks: int = 1
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,11 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
     context_builder = ContextBuilder(osm)
     planner = PlannerClient()
     compiler = PlanCompiler(registry)
+    memory = MemoryStore()
+    scheduler = MixedWorkloadScheduler(
+        max_parallel_skill=resolved.embodiment.max_concurrent_actions,
+        max_parallel_model=resolved.embodiment.max_parallel_model_tasks,
+    )
 
     def on_replan(session_id: str) -> None:
         osm.append_event(OSMEvent(type="REQUEST_ENQUEUED", session_id=session_id, payload={"topic": "REQ_PLAN"}))
@@ -126,6 +134,8 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
         "context_builder": context_builder,
         "planner": planner,
         "compiler": compiler,
+        "memory": memory,
+        "scheduler": scheduler,
         "kernel": kernel,
     }
 
@@ -167,6 +177,13 @@ def build(options: BuildOptions | None = None) -> Dict[str, Any]:
             "stale_action_timeout_ms": resolved.embodiment.stale_action_timeout_ms,
             "min_battery_percent_to_start": resolved.embodiment.min_battery_percent_to_start,
         },
+        "ai_native_robotics": {
+            "tool_contract_versioning": True,
+            "governance_bus": True,
+            "memory_layers": ["short_term", "long_term_user", "contextual"],
+            "mixed_model_skill_scheduler": True,
+            "explainable_trace": True,
+        },
     }
     return {
         "build_options": asdict(resolved),
@@ -197,16 +214,28 @@ def run_demo(
     context_builder: ContextBuilder = system["context_builder"]  # type: ignore[assignment]
     planner: PlannerClient = system["planner"]  # type: ignore[assignment]
     compiler: PlanCompiler = system["compiler"]  # type: ignore[assignment]
+    memory: MemoryStore = system["memory"]  # type: ignore[assignment]
+    scheduler: MixedWorkloadScheduler = system["scheduler"]  # type: ignore[assignment]
     kernel: Kernel = system["kernel"]  # type: ignore[assignment]
 
     session_id = api.post_sessions({"owner": "voice", "capabilities": ["NAV", "DIALOG"], "preemption_policy": "PAUSEABLE"})["session_id"]
     intent = {"text": "去卧室叫孩子吃饭", "slots": {"room": "bedroom"}}
     api.post_submit_intent(session_id, intent)
+    memory.write_short_term(session_id, "intent", intent)
+    memory.write_long_term_user_pref("voice", "preferred_language", "zh")
+    memory.write_context("home", {"battery_percent": 78, "network": "online"})
+
+    model_task = TaskSpec(name="intent-parse", task_type="model", priority=5)
+    if scheduler.start(model_task):
+        scheduler.finish(model_task)
+
+    osm.append_event(OSMEvent(type="EXPLAIN_TRACE", session_id=session_id, payload={"stage": "intent_ingested", "evidence": intent["text"]}))
 
     osm.apply_patch({"type": "session_state", "session_id": session_id, "state": SessionState.PLANNING.value})
     context_packet = context_builder.build(session_id, intent, {"risk_class": "SAFE", "capabilities": ["NAV", "DIALOG"]})
     plan = planner.plan(context_packet)
     exec_graph = compiler.compile(plan)
+    osm.append_event(OSMEvent(type="EXPLAIN_TRACE", session_id=session_id, payload={"stage": "plan_compiled", "plan_id": plan["plan_id"], "exec_graph_id": exec_graph["exec_graph_id"]}))
     session = osm.session_projection[session_id]
     session.plan_id = plan["plan_id"]
     session.exec_graph_id = exec_graph["exec_graph_id"]
@@ -239,7 +268,8 @@ def run_demo(
         if cancel_midway and ticks == 3:
             api.post_cancel(session_id)
         time.sleep(0.03)
-    return {"session": osm.get()["session_projection"][session_id], "events": [e.__dict__ for e in osm.event_log], "messages": list(stream.history)}
+    memory.cleanup_expired()
+    return {"session": osm.get()["session_projection"][session_id], "events": [e.__dict__ for e in osm.event_log], "messages": list(stream.history), "governance": list(stream.governance_log), "memory": {"short_term_sessions": len(memory.short_term), "long_term_users": len(memory.long_term_user), "context_locations": len(memory.contextual)}}
 
 
 def main() -> None:

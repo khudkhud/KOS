@@ -31,17 +31,30 @@ class StrategyPlugin:
     def on_message(self, msg: Message) -> None:
         """Handle stream messages and trigger strategy callbacks when matched."""
         if msg.type == "Event" and msg.topic in {"LOW_BATTERY", "NAV_STUCK"} and msg.session_id:
-            self.stream.publish(
-                Message(
-                    type="Proposal",
-                    topic="SUGGEST_REPLAN",
-                    session_id=msg.session_id,
-                    trace_id=msg.trace_id,
-                    payload={"reason": msg.topic},
-                ),
+            self.stream.publish_governance(
+                decision_type="Proposal",
+                topic="SUGGEST_REPLAN",
+                session_id=msg.session_id,
+                proposer=self.agent_id,
+                approver="control",
+                executor="planner",
+                rollback_owner="strategy",
+                reason=msg.topic,
                 sender=self.agent_id,
             )
             self.on_replan(msg.session_id)
+            if msg.topic == "LOW_BATTERY":
+                self.stream.publish_governance(
+                    decision_type="Escalation",
+                    topic="ENERGY_GUARD_ESCALATED",
+                    session_id=msg.session_id,
+                    proposer=self.agent_id,
+                    approver="control",
+                    executor="control",
+                    rollback_owner="strategy",
+                    reason="battery safety floor reached",
+                    sender=self.agent_id,
+                )
             return
 
         if msg.type == "Event" and msg.topic == "TARGET_GONE" and msg.session_id:
@@ -53,14 +66,15 @@ class StrategyPlugin:
             trusted_sources = {"mother", "father", "guardian", "family_member"}
             should_cancel = target in {"son", "child"} and confidence >= 0.7 and source in trusted_sources
             if should_cancel:
-                self.stream.publish(
-                    Message(
-                        type="Proposal",
-                        topic="SUGGEST_CANCEL",
-                        session_id=msg.session_id,
-                        trace_id=msg.trace_id,
-                        payload={"reason": "TARGET_GONE", "source": source, "confidence": confidence},
-                    ),
+                self.stream.publish_governance(
+                    decision_type="Decision",
+                    topic="SUGGEST_CANCEL",
+                    session_id=msg.session_id,
+                    proposer=self.agent_id,
+                    approver="control",
+                    executor="control",
+                    rollback_owner="strategy",
+                    reason="TARGET_GONE",
                     sender=self.agent_id,
                 )
                 if self.on_cancel:

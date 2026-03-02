@@ -6,7 +6,11 @@
     "capability": "NAV",
     "risk_class": "SAFE",
     "cancel_grace_ms": 500,
-    "timeout_default_ms": 10000
+    "timeout_default_ms": 10000,
+    "contract_version": "1.1",
+    "idempotent": false,
+    "compensation_tool": "",
+    "rollout_stage": "ga"
   },
   {
     "tool": "dialog.say",
@@ -15,7 +19,11 @@
     "capability": "DIALOG",
     "risk_class": "SAFE",
     "cancel_grace_ms": 500,
-    "timeout_default_ms": 5000
+    "timeout_default_ms": 5000,
+    "contract_version": "1.0",
+    "idempotent": true,
+    "compensation_tool": "",
+    "rollout_stage": "ga"
   },
   {
     "tool": "dialog.wait_reply",
@@ -24,6 +32,10 @@
     "capability": "DIALOG",
     "risk_class": "SAFE",
     "cancel_grace_ms": 500,
-    "timeout_default_ms": 30000
+    "timeout_default_ms": 30000,
+    "contract_version": "1.0",
+    "idempotent": false,
+    "compensation_tool": "dialog.say",
+    "rollout_stage": "beta"
   }
 ]

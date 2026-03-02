@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import resources
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import json
 
 from robotos.models import Session
@@ -23,6 +23,10 @@ class ToolSpec:
     cancel_grace_ms: int = 500
     timeout_default_ms: int = 600_000
     dds_action: str = ""
+    contract_version: str = "1.0"
+    idempotent: bool = False
+    compensation_tool: str = ""
+    rollout_stage: str = "ga"
 
 
 class ToolRegistry:
@@ -45,6 +49,10 @@ class ToolRegistry:
                     risk_class=entry.get("risk_class", "SAFE"),
                     cancel_grace_ms=entry.get("cancel_grace_ms", 500),
                     timeout_default_ms=entry.get("timeout_default_ms", 600_000),
+                    contract_version=str(entry.get("contract_version", "1.0")),
+                    idempotent=bool(entry.get("idempotent", False)),
+                    compensation_tool=str(entry.get("compensation_tool", "")),
+                    rollout_stage=str(entry.get("rollout_stage", "ga")),
                 )
             )
         return cls(specs)
@@ -52,6 +60,23 @@ class ToolRegistry:
 
     def __len__(self) -> int:
         return len(self._tools)
+
+
+    def discover(self, capability: Optional[str] = None, rollout_stage: Optional[str] = None) -> List[ToolSpec]:
+        out: List[ToolSpec] = []
+        for spec in self._tools.values():
+            if capability and spec.capability != capability:
+                continue
+            if rollout_stage and spec.rollout_stage != rollout_stage:
+                continue
+            out.append(spec)
+        return sorted(out, key=lambda x: x.tool)
+
+    def negotiate(self, name: str, accepted_contracts: List[str]) -> ToolSpec:
+        spec = self.get(name)
+        if spec.contract_version not in accepted_contracts:
+            raise ValueError(f"tool {name} contract {spec.contract_version} is not compatible")
+        return spec
 
     def get(self, name: str) -> ToolSpec:
         if name not in self._tools:

@@ -2,14 +2,18 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ToolRegistryEntry",
   "type": "object",
-  "required": ["tool", "required_resources", "capability", "risk_class"],
+  "required": ["tool", "required_resources", "capability"],
   "properties": {
     "tool": {"type": "string"},
     "dds_action": {"type": "string"},
     "required_resources": {"type": "array", "items": {"type": "string"}},
     "capability": {"type": "string"},
-    "risk_class": {"enum": ["SAFE", "CONFIRM", "FORBIDDEN"]},
+    "risk_class": {"type": "string"},
     "cancel_grace_ms": {"type": "integer"},
-    "timeout_default_ms": {"type": "integer"}
+    "timeout_default_ms": {"type": "integer"},
+    "contract_version": {"type": "string"},
+    "idempotent": {"type": "boolean"},
+    "compensation_tool": {"type": "string"},
+    "rollout_stage": {"type": "string", "enum": ["canary", "beta", "ga"]}
   }
 }

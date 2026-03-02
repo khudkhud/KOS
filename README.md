@@ -82,3 +82,13 @@ python -m robotos.app --build
 - 动作陈旧超时（反馈/结果长期缺失时主动失败收敛）
 - 单 session 最大并发动作数（受限算力/功耗下的保守调度）
 - 最低启动电量阈值（用于上层策略接入）
+
+
+## AI-native 实现进展（结合实体机器人约束）
+
+本版在保留 DDS 底层通信前提下，新增了面向智能时代机器人的关键能力：
+- Tool/Skill Contract 扩展：支持 `contract_version`、`idempotent`、`compensation_tool`、`rollout_stage`。
+- Agent Governance Bus：消息类型扩展为 `Decision/Override/Escalation`，并记录责任链。
+- Explainable Trace：任务会写入 `EXPLAIN_TRACE` 事件，用于解释意图与计划阶段。
+- Memory OS 雏形：短期记忆、长期用户偏好、情景记忆，并支持过期清理与隐私擦除。
+- 模型+技能混部调度器：在资源受限硬件上限制并行模型/技能任务。

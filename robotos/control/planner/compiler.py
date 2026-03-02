@@ -20,6 +20,7 @@ class PlanCompiler:
         validate(plan, "plan_json.schema.json")
         children: List[Dict[str, Any]] = []
         held: List[str] = []
+        rollback: List[Dict[str, Any]] = []
         for node in plan["root"]["children"]:
             tool = node["name"]
             spec = self.tools.get(tool)
@@ -27,13 +28,26 @@ class PlanCompiler:
             if add:
                 children.append({"type": "AcquireLease", "resources": add, "ttl_ms": 5000})
                 held.extend(add)
-            action = {"type": "Action", "tool": tool, "args": node.get("args", {})}
+            action = {
+                "type": "Action",
+                "tool": tool,
+                "args": node.get("args", {}),
+                "tool_contract": {
+                    "version": spec.contract_version,
+                    "idempotent": spec.idempotent,
+                    "compensation_tool": spec.compensation_tool,
+                    "rollout_stage": spec.rollout_stage,
+                },
+            }
             wrapped = {
                 "type": "Timeout",
                 "timeout_ms": spec.timeout_default_ms,
+                "semantic_interruptible": True,
                 "child": {"type": "Retry", "max": 2, "backoff_ms": 1000, "child": action},
             }
             children.append(wrapped)
+            if spec.compensation_tool:
+                rollback.append({"type": "Action", "tool": spec.compensation_tool, "args": {"source_tool": tool}})
         if held:
             children.append({"type": "ReleaseLease", "resources": held})
         graph = {
@@ -41,6 +55,8 @@ class PlanCompiler:
             "session_id": plan["session_id"],
             "plan_id": plan["plan_id"],
             "root": {"type": "Seq", "children": children},
+            "rollback_graph": {"type": "Seq", "children": rollback},
+            "checkpoint_layers": ["exec_state", "dialog_state", "environment_state", "tool_state"],
         }
         validate(graph, "exec_graph.schema.json")
         return graph

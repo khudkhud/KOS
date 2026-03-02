@@ -4,6 +4,7 @@ from pathlib import Path
 from robotos.app import BuildOptions, EmbodimentProfile, build, run_demo
 from robotos.control.message.agents import build_default_agent_registry
 from robotos.control.message.stream import MessageStream
+from robotos.control.strategy.plugin import StrategyPlugin
 from robotos.demo_agent_comm import run_agent_comm_demo
 from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import ToolRegistry
@@ -109,3 +110,38 @@ def test_build_embodiment_profile():
     assert rel["max_session_runtime_ms"] == 123000
     assert rel["stale_action_timeout_ms"] == 45000
     assert rel["min_battery_percent_to_start"] == 25
+
+
+def test_tool_registry_discovery_and_negotiate():
+    reg = ToolRegistry.from_json_file("tool_registry.json")
+    dialog_tools = reg.discover(capability="DIALOG")
+    assert any(t.tool == "dialog.say" for t in dialog_tools)
+    spec = reg.negotiate("nav.goto", accepted_contracts=["1.1", "1.0"])
+    assert spec.contract_version == "1.1"
+
+
+def test_governance_bus_records_responsibility_chain():
+    stream = MessageStream(registry=build_default_agent_registry())
+
+    called = {"cancel": False}
+
+    def on_replan(_: str) -> None:
+        return
+
+    def on_cancel(_: str, __: str) -> None:
+        called["cancel"] = True
+
+    StrategyPlugin(stream, on_replan=on_replan, on_cancel=on_cancel, agent_id="strategy")
+    stream.publish(Message(type="Event", topic="TARGET_GONE", session_id="S-1", payload={"target": "son", "source": "mother", "confidence": 0.95}), sender="monitor_agent")
+
+    assert called["cancel"] is True
+    assert any(x["type"] == "Decision" and x["topic"] == "SUGGEST_CANCEL" for x in stream.governance_log)
+    chain = [x for x in stream.governance_log if x["topic"] == "SUGGEST_CANCEL"][0]["payload"]["responsibility_chain"]
+    assert chain["proposer"] == "strategy"
+
+
+def test_run_demo_has_explain_trace_and_memory_snapshot():
+    out = run_demo()
+    assert any(e["type"] == "EXPLAIN_TRACE" for e in out["events"])
+    assert out["memory"]["long_term_users"] >= 1
+    assert isinstance(out["governance"], list)
