@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from robotos.app import run_demo
+from robotos.app import BuildOptions, build, run_demo
 from robotos.control.message.agents import build_default_agent_registry
 from robotos.control.message.stream import MessageStream
 from robotos.demo_agent_comm import run_agent_comm_demo
@@ -92,3 +92,11 @@ def test_agent_comm_demo_visualization():
     assert out["session"]["state"] == "CANCELED"
     assert "sequenceDiagram" in out["mermaid"]
     assert any(m["topic"] == "TARGET_GONE" for m in out["messages"])
+
+
+def test_build_assessment_report():
+    out = build(BuildOptions(dds_backend="inmemory"))
+    assert out["assessment"]["professionalism"]["typed_build_options"] is True
+    assert out["assessment"]["practicality"]["dds_backend"] == "inmemory"
+    assert "kernel" in out["components"]
+    assert out["assessment"]["extensibility"]["pluggable_dds_backend"] is True

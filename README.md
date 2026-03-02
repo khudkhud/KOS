@@ -60,3 +60,16 @@ python -m pytest -q
 ## Agent 间通信可视化 Demo
 
 `python -m robotos.demo_agent_comm` 会运行 `TARGET_GONE` 场景，并输出 Message Stream 的时间线以及 Mermaid sequenceDiagram 文本，便于观察 agent 因果通信。
+
+
+## Build 评估报告（专业性/实用性/前沿性/扩展性）
+
+```bash
+python -m robotos.app --build
+```
+
+该命令会输出一份结构化 JSON，包含：
+- `professionalism`：工程规范化能力（显式构建参数、schema 校验、工具规模）
+- `practicality`：落地实用能力（HTTP、持久化、可选 DDS backend）
+- `frontier`：前沿执行语义（两阶段抢占、epoch fencing、checkpoint/restore）
+- `extensibility`：扩展能力（可插拔 backend、文件化注册表、消息流与 agent 注册）

@@ -49,6 +49,10 @@ class ToolRegistry:
             )
         return cls(specs)
 
+
+    def __len__(self) -> int:
+        return len(self._tools)
+
     def get(self, name: str) -> ToolSpec:
         if name not in self._tools:
             raise KeyError(f"unknown tool: {name}")
