@@ -62,6 +62,17 @@ def _resolve_build_options(options: BuildOptions | None = None) -> BuildOptions:
     )
 
 
+def _wire_strategy_plugin(*, stream: MessageStream, osm: OSMStore, sessions: SessionService) -> None:
+    def on_replan(session_id: str) -> None:
+        osm.append_event(OSMEvent(type="REQUEST_ENQUEUED", session_id=session_id, payload={"topic": "REQ_PLAN"}))
+
+    def on_cancel(session_id: str, reason: str) -> None:
+        osm.append_event(OSMEvent(type="REQUEST_ENQUEUED", session_id=session_id, payload={"topic": "REQ_CANCEL", "reason": reason}))
+        sessions.cancel(session_id)
+
+    StrategyPlugin(stream, on_replan, on_cancel=on_cancel, agent_id="strategy")
+
+
 def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
     """Compose the full runtime system graph for demos/tests/services."""
     resolved = _resolve_build_options(options)
@@ -110,14 +121,7 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
     safety = SafetySupervisor(min_battery_percent=resolved.embodiment.min_battery_percent_to_start)
     projector = OSMWorldProjector(memory)
 
-    def on_replan(session_id: str) -> None:
-        osm.append_event(OSMEvent(type="REQUEST_ENQUEUED", session_id=session_id, payload={"topic": "REQ_PLAN"}))
-
-    def on_cancel(session_id: str, reason: str) -> None:
-        osm.append_event(OSMEvent(type="REQUEST_ENQUEUED", session_id=session_id, payload={"topic": "REQ_CANCEL", "reason": reason}))
-        sessions.cancel(session_id)
-
-    StrategyPlugin(stream, on_replan, on_cancel=on_cancel, agent_id="strategy")
+    _wire_strategy_plugin(stream=stream, osm=osm, sessions=sessions)
     return {
         "build": asdict(resolved),
         "osm": osm,
