@@ -1,0 +1,246 @@
+"""Action supervision bridge between executor and DDS action transport.
+
+Provides goal dispatch, feedback/result polling, cancel, epoch fencing,
+and HPU coordination (queue + priority preempt) for model actions.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+from typing import Any, Dict, Optional
+
+from robotos.kernel.action.dds import ActionHeader, Cancel, DDSActionClient, Goal, result_to_action_result
+from robotos.kernel.lease.manager import LeaseManager
+from robotos.kernel.osm.store import OSMStore
+from robotos.kernel.scheduler.mixed import MixedWorkloadScheduler, TaskSpec
+from robotos.models import ActionResult, OSMEvent, new_id, now_ms
+
+
+@dataclass
+class ActionHandle:
+    action_id: str
+    session_id: str
+    tool: str
+    args: Dict[str, Any]
+    action_epoch: int
+    state: str = "GOAL_SENT"
+    started_at: int = 0
+
+
+class ActionSupervisor:
+    """Supervise action lifecycle and protect against stale epochs."""
+
+    def __init__(
+        self,
+        osm: OSMStore,
+        dds_client: DDSActionClient,
+        max_concurrent_actions: int = 2,
+        scheduler: MixedWorkloadScheduler | None = None,
+        leases: LeaseManager | None = None,
+    ) -> None:
+        self.osm = osm
+        self.dds_client = dds_client
+        self.max_concurrent_actions = max_concurrent_actions
+        self.scheduler = scheduler
+        self.leases = leases
+        self.active: Dict[str, ActionHandle] = {}
+        self.session_epoch: Dict[str, int] = {}
+        self._model_jobs: Dict[str, TaskSpec] = {}
+        self._pending_hpu: list[dict[str, Any]] = []
+
+    def next_epoch(self, session_id: str) -> int:
+        self.session_epoch[session_id] = self.session_epoch.get(session_id, 0) + 1
+        return self.session_epoch[session_id]
+
+    def current_epoch(self, session_id: str) -> int:
+        return self.session_epoch.get(session_id, self.osm.session_projection.get(session_id).action_epoch if session_id in self.osm.session_projection else 0)
+
+    def _is_hpu_model_tool(self, tool: str) -> bool:
+        return tool in {
+            "perception.depth_anything.estimate",
+            "navigation.navdp.predict_waypoint",
+            "planning.robobrain.plan",
+        }
+
+    def _req_token(self, session_id: str, tool: str, args: Dict[str, Any]) -> str:
+        return f"{session_id}:{tool}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
+
+    def _priority(self, session_id: str) -> int:
+        session = self.osm.session_projection.get(session_id)
+        return session.priority if session else 0
+
+    def _enqueue_hpu(self, session_id: str, tool: str, args: Dict[str, Any]) -> str:
+        token = self._req_token(session_id, tool, args)
+        if not any(x["token"] == token for x in self._pending_hpu):
+            self._pending_hpu.append(
+                {
+                    "token": token,
+                    "session_id": session_id,
+                    "tool": tool,
+                    "args": args,
+                    "priority": self._priority(session_id),
+                    "ts": now_ms(),
+                }
+            )
+            self.osm.append_event(
+                OSMEvent(
+                    type="MODEL_QUEUE_ENQUEUED",
+                    session_id=session_id,
+                    payload={"tool": tool, "token": token, "reason": "hpu_busy"},
+                )
+            )
+        return token
+
+    def _queue_head_token(self) -> str | None:
+        if not self._pending_hpu:
+            return None
+        item = sorted(self._pending_hpu, key=lambda x: (-int(x["priority"]), int(x["ts"])))[0]
+        return str(item["token"])
+
+    def _pop_queue_token(self, token: str) -> None:
+        self._pending_hpu = [x for x in self._pending_hpu if x["token"] != token]
+
+    def _check_hpu_physical_gate(self, session_id: str) -> bool:
+        if not self.leases:
+            return True
+        hpu_lease_id = self.leases.by_resource.get("hpu")
+        if not hpu_lease_id:
+            return False
+        lease = self.osm.lease_projection.get(hpu_lease_id)
+        return bool(lease and lease.owner_session == session_id)
+
+    def _maybe_preempt_hpu_owner(self, incoming_session: str) -> None:
+        if not self.leases:
+            return
+        hpu_lease_id = self.leases.by_resource.get("hpu")
+        if not hpu_lease_id:
+            return
+        lease = self.osm.lease_projection.get(hpu_lease_id)
+        if not lease:
+            return
+        owner = lease.owner_session
+        if owner == incoming_session:
+            return
+        if self._priority(incoming_session) <= self._priority(owner):
+            return
+
+        # cancel owner model actions and preempt hpu lease to high-priority session
+        for aid, handle in list(self.active.items()):
+            if handle.session_id == owner and self._is_hpu_model_tool(handle.tool):
+                self.cancel(aid, reason="hpu_preempted_by_high_priority")
+                self.active.pop(aid, None)
+        self.leases.preempt("hpu", incoming_session)
+        # Acquire HPU for incoming high-priority session immediately.
+        self.leases.acquire(["hpu"], incoming_session, ttl_ms=5_000)
+        self.osm.append_event(
+            OSMEvent(
+                type="MODEL_QUEUE_PREEMPTED",
+                session_id=incoming_session,
+                payload={"resource": "hpu", "from_session": owner, "to_session": incoming_session},
+            )
+        )
+
+    def can_dispatch(self, session_id: str) -> bool:
+        active_for_session = sum(1 for h in self.active.values() if h.session_id == session_id)
+        return active_for_session < self.max_concurrent_actions
+
+    def stale_actions(self, session_id: str, now: int, timeout_ms: int) -> list[str]:
+        out: list[str] = []
+        for aid, handle in self.active.items():
+            if handle.session_id == session_id and now - handle.started_at > timeout_ms:
+                out.append(aid)
+        return out
+
+    def send_goal(self, session_id: str, tool: str, args: Dict[str, Any], plan_id: str = "", trace_id: str = "") -> ActionHandle:
+        """Dispatch a new action goal over DDS action transport.
+
+        HPU model tools use dual gate with graceful contention handling:
+        1) scheduler logical quota
+        2) lease physical ownership
+
+        On contention, request is queued and caller gets `HPU_QUEUED` so executor
+        can retry without hard-fail.
+        """
+        if self._is_hpu_model_tool(tool):
+            token = self._enqueue_hpu(session_id, tool, args)
+            self._maybe_preempt_hpu_owner(session_id)
+            if token != self._queue_head_token():
+                raise RuntimeError("HPU_QUEUED: waiting higher-priority jobs")
+            if not self._check_hpu_physical_gate(session_id):
+                raise RuntimeError("HPU_QUEUED: waiting hpu lease")
+            if self.scheduler:
+                job = TaskSpec(name=tool, task_type="model", priority=5, est_latency_ms=300)
+                if not self.scheduler.start(job):
+                    raise RuntimeError("HPU_QUEUED: scheduler quota exceeded")
+            else:
+                job = None
+            self._pop_queue_token(token)
+        else:
+            job = None
+
+        epoch = self.current_epoch(session_id)
+        action_id = new_id("A")
+        h = ActionHandle(action_id=action_id, session_id=session_id, tool=tool, args=args, action_epoch=epoch, started_at=now_ms())
+        self.active[action_id] = h
+        if job:
+            self._model_jobs[action_id] = job
+        goal = Goal(
+            hdr=ActionHeader(session_id=session_id, plan_id=plan_id, action_id=action_id, trace_id=trace_id, action_epoch=epoch, osm_version_hint=self.osm.version),
+            tool=tool,
+            json_args=args,
+        )
+        self.dds_client.send_goal(goal)
+        self.osm.append_event(OSMEvent(type="ACTION_GOAL_SENT", session_id=session_id, action_id=action_id, payload={"tool": tool, "args": args, "action_epoch": epoch}))
+        self.osm.apply_patch({"type": "action_update", "action_id": action_id, "data": {"state": "RUNNING", "tool": tool, "session_id": session_id, "action_epoch": epoch}})
+        return h
+
+    def _finish_model_job(self, action_id: str) -> None:
+        job = self._model_jobs.pop(action_id, None)
+        if job and self.scheduler:
+            self.scheduler.finish(job)
+
+    def poll(self, action_id: str) -> Optional[ActionResult]:
+        """Poll feedback/result channels and translate to ActionResult."""
+        handle = self.active.get(action_id)
+        if not handle:
+            return None
+        fb = self.dds_client.poll_feedback(action_id)
+        if fb:
+            if fb.hdr.action_epoch == self.current_epoch(handle.session_id):
+                self.osm.append_event(OSMEvent(type="ACTION_FEEDBACK", session_id=handle.session_id, action_id=action_id, payload={"progress": fb.progress, "status": fb.status_msg, "action_epoch": fb.hdr.action_epoch}))
+
+        result = self.dds_client.poll_result(action_id)
+        if result:
+            if result.hdr.action_epoch != self.current_epoch(handle.session_id):
+                self.active.pop(action_id, None)
+                self._finish_model_job(action_id)
+                self.osm.append_event(OSMEvent(type="ACTION_RESULT_IGNORED", session_id=handle.session_id, action_id=action_id, payload={"reason": "stale_epoch", "action_epoch": result.hdr.action_epoch}))
+                return None
+            ar = result_to_action_result(result)
+            self.osm.append_event(OSMEvent(type="ACTION_RESULT", session_id=handle.session_id, action_id=action_id, payload={"status": ar.status, "error_code": ar.error_code, "action_epoch": result.hdr.action_epoch}))
+            self.osm.apply_patch({"type": "action_update", "action_id": action_id, "data": {"state": ar.status, "tool": handle.tool, "session_id": handle.session_id, "action_epoch": result.hdr.action_epoch}})
+            self.active.pop(action_id, None)
+            self._finish_model_job(action_id)
+            return ar
+        return None
+
+    def cancel(self, action_id: str, reason: str = "cancel") -> Optional[ActionResult]:
+        handle = self.active.get(action_id)
+        if not handle:
+            return None
+        cancel = Cancel(
+            hdr=ActionHeader(session_id=handle.session_id, plan_id="", action_id=action_id, trace_id="", action_epoch=handle.action_epoch, osm_version_hint=self.osm.version),
+            reason=reason,
+        )
+        self.dds_client.cancel(handle.tool, cancel)
+        self.osm.append_event(OSMEvent(type="ACTION_CANCELED", session_id=handle.session_id, action_id=action_id, payload={"reason": reason, "action_epoch": handle.action_epoch}))
+        self._finish_model_job(action_id)
+        return None
+
+    def cancel_session(self, session_id: str, reason: str = "session_cancel") -> None:
+        """Cancel all active actions associated with a session."""
+        for aid, handle in list(self.active.items()):
+            if handle.session_id == session_id:
+                self.cancel(aid, reason=reason)
+                self.active.pop(aid, None)
