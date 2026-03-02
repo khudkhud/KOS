@@ -24,7 +24,7 @@ from robotos.kernel.executor.engine import Executor
 from robotos.kernel.lease.manager import LeaseManager
 from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import PolicyGate, ToolRegistry
-from robotos.kernel.runtime import Kernel
+from robotos.kernel.orchestrator import Kernel
 from robotos.kernel.scheduler.mixed import MixedWorkloadScheduler
 from robotos.models import OSMEvent
 from robotos.runtime.demo_wiring import create_demo_spin_io

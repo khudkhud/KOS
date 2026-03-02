@@ -15,7 +15,7 @@ from robotos.control.planner.compiler import PlanCompiler
 from robotos.control.world_memory import OSMWorldProjector
 from robotos.embodied import NavigationGoal, PathNavigationAgent, RobotStateEstimator, SafetySupervisor
 from robotos.kernel.action.dds import DDSBroker, TimedSkillServer
-from robotos.kernel.runtime import Kernel
+from robotos.kernel.orchestrator import Kernel
 from robotos.kernel.scheduler.mixed import MixedWorkloadScheduler, TaskSpec
 from robotos.models import Message, OSMEvent, SessionState
 from robotos.control.agents import TaskExecutionAgent
