@@ -119,4 +119,4 @@ python -m robotos.app --build
 
 - DepthAnything/NavDP/RoboBrain 统一声明 `required_resources=["hpu"]`，由 lease 保证物理互斥。
 - Action 下发前对 HPU 模型走双门控：先 scheduler 并发配额，再 lease 物理资源检查。
-- 门控失败返回 `HPU_BUSY` 并执行延迟重试（degrade policy）。
+- 门控冲突时采用“排队+优先级让位”策略：同优先级排队等待，高优先级可触发低优先级让位，并执行延迟重试（degrade policy）。

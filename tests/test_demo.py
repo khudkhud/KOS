@@ -10,9 +10,13 @@ from robotos.control.strategy.plugin import StrategyPlugin
 from robotos.control.world_memory import OSMWorldProjector
 from robotos.demo_agent_comm import run_agent_comm_demo
 from robotos.embodied import NavigationGoal, PathNavigationAgent, RobotStateEstimator, SafetySupervisor
+from robotos.kernel.action.dds import DDSActionClient, InMemoryDDSBroker
+from robotos.kernel.action.supervisor import ActionSupervisor
+from robotos.kernel.lease.manager import LeaseManager
 from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import ToolRegistry
-from robotos.models import Message
+from robotos.kernel.scheduler.mixed import MixedWorkloadScheduler
+from robotos.models import Message, Session, SessionState
 from robotos.schema_validate import SchemaValidationError
 from robotos.skills.ai_model_skills import DepthAnythingSkill, NavDPSkill, RoboBrainSkill, YOLOPerceptionServiceSkill
 
@@ -211,3 +215,33 @@ def test_hpu_resources_unified_in_registry():
     assert reg.get("perception.depth_anything.estimate").required_resources == ["hpu"]
     assert reg.get("navigation.navdp.predict_waypoint").required_resources == ["hpu"]
     assert reg.get("planning.robobrain.plan").required_resources == ["hpu"]
+
+
+def test_hpu_queue_and_priority_preempt():
+    osm = OSMStore()
+    low = Session(session_id="S-low", owner="o", priority=1, capabilities=["NAV"], state=SessionState.EXECUTING)
+    high = Session(session_id="S-high", owner="o", priority=10, capabilities=["NAV"], state=SessionState.EXECUTING)
+    peer = Session(session_id="S-peer", owner="o", priority=1, capabilities=["NAV"], state=SessionState.EXECUTING)
+    osm.apply_patch({"type": "session_upsert", "session": low})
+    osm.apply_patch({"type": "session_upsert", "session": high})
+    osm.apply_patch({"type": "session_upsert", "session": peer})
+
+    leases = LeaseManager(osm)
+    leases.acquire(["hpu"], "S-low", ttl_ms=5000)
+
+    scheduler = MixedWorkloadScheduler(max_parallel_model=1)
+    sup = ActionSupervisor(osm, DDSActionClient(InMemoryDDSBroker()), scheduler=scheduler, leases=leases)
+
+    # higher-priority session preempts HPU and dispatches
+    h = sup.send_goal("S-high", "planning.robobrain.plan", {"intent": "test"})
+    assert h.session_id == "S-high"
+    lease_id = leases.by_resource.get("hpu")
+    assert lease_id is not None
+    assert osm.lease_projection[lease_id].owner_session == "S-high"
+
+    # equal-priority peer request should be queued while model quota is occupied
+    try:
+        sup.send_goal("S-peer", "planning.robobrain.plan", {"intent": "peer"})
+        raise AssertionError("expected queued signal")
+    except RuntimeError as exc:
+        assert str(exc).startswith("HPU_QUEUED")

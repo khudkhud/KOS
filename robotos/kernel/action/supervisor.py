@@ -1,12 +1,13 @@
 """Action supervision bridge between executor and DDS action transport.
 
-Provides goal dispatch, feedback/result polling, cancel, and epoch fencing to
-avoid stale-result contamination after preempt/cancel.
+Provides goal dispatch, feedback/result polling, cancel, epoch fencing,
+and HPU coordination (queue + priority preempt) for model actions.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Any, Dict, Optional
 
 from robotos.kernel.action.dds import ActionHeader, Cancel, DDSActionClient, Goal, result_to_action_result
@@ -46,6 +47,7 @@ class ActionSupervisor:
         self.active: Dict[str, ActionHandle] = {}
         self.session_epoch: Dict[str, int] = {}
         self._model_jobs: Dict[str, TaskSpec] = {}
+        self._pending_hpu: list[dict[str, Any]] = []
 
     def next_epoch(self, session_id: str) -> int:
         self.session_epoch[session_id] = self.session_epoch.get(session_id, 0) + 1
@@ -61,6 +63,84 @@ class ActionSupervisor:
             "planning.robobrain.plan",
         }
 
+    def _req_token(self, session_id: str, tool: str, args: Dict[str, Any]) -> str:
+        return f"{session_id}:{tool}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
+
+    def _priority(self, session_id: str) -> int:
+        session = self.osm.session_projection.get(session_id)
+        return session.priority if session else 0
+
+    def _enqueue_hpu(self, session_id: str, tool: str, args: Dict[str, Any]) -> str:
+        token = self._req_token(session_id, tool, args)
+        if not any(x["token"] == token for x in self._pending_hpu):
+            self._pending_hpu.append(
+                {
+                    "token": token,
+                    "session_id": session_id,
+                    "tool": tool,
+                    "args": args,
+                    "priority": self._priority(session_id),
+                    "ts": now_ms(),
+                }
+            )
+            self.osm.append_event(
+                OSMEvent(
+                    type="MODEL_QUEUE_ENQUEUED",
+                    session_id=session_id,
+                    payload={"tool": tool, "token": token, "reason": "hpu_busy"},
+                )
+            )
+        return token
+
+    def _queue_head_token(self) -> str | None:
+        if not self._pending_hpu:
+            return None
+        item = sorted(self._pending_hpu, key=lambda x: (-int(x["priority"]), int(x["ts"])))[0]
+        return str(item["token"])
+
+    def _pop_queue_token(self, token: str) -> None:
+        self._pending_hpu = [x for x in self._pending_hpu if x["token"] != token]
+
+    def _check_hpu_physical_gate(self, session_id: str) -> bool:
+        if not self.leases:
+            return True
+        hpu_lease_id = self.leases.by_resource.get("hpu")
+        if not hpu_lease_id:
+            return False
+        lease = self.osm.lease_projection.get(hpu_lease_id)
+        return bool(lease and lease.owner_session == session_id)
+
+    def _maybe_preempt_hpu_owner(self, incoming_session: str) -> None:
+        if not self.leases:
+            return
+        hpu_lease_id = self.leases.by_resource.get("hpu")
+        if not hpu_lease_id:
+            return
+        lease = self.osm.lease_projection.get(hpu_lease_id)
+        if not lease:
+            return
+        owner = lease.owner_session
+        if owner == incoming_session:
+            return
+        if self._priority(incoming_session) <= self._priority(owner):
+            return
+
+        # cancel owner model actions and preempt hpu lease to high-priority session
+        for aid, handle in list(self.active.items()):
+            if handle.session_id == owner and self._is_hpu_model_tool(handle.tool):
+                self.cancel(aid, reason="hpu_preempted_by_high_priority")
+                self.active.pop(aid, None)
+        self.leases.preempt("hpu", incoming_session)
+        # Acquire HPU for incoming high-priority session immediately.
+        self.leases.acquire(["hpu"], incoming_session, ttl_ms=5_000)
+        self.osm.append_event(
+            OSMEvent(
+                type="MODEL_QUEUE_PREEMPTED",
+                session_id=incoming_session,
+                payload={"resource": "hpu", "from_session": owner, "to_session": incoming_session},
+            )
+        )
+
     def can_dispatch(self, session_id: str) -> bool:
         active_for_session = sum(1 for h in self.active.values() if h.session_id == session_id)
         return active_for_session < self.max_concurrent_actions
@@ -72,33 +152,30 @@ class ActionSupervisor:
                 out.append(aid)
         return out
 
-    def _check_hpu_physical_gate(self, session_id: str) -> bool:
-        if not self.leases:
-            return True
-        hpu_lease_id = self.leases.by_resource.get("hpu")
-        if not hpu_lease_id:
-            return False
-        lease = self.osm.lease_projection.get(hpu_lease_id)
-        return bool(lease and lease.owner_session == session_id)
-
     def send_goal(self, session_id: str, tool: str, args: Dict[str, Any], plan_id: str = "", trace_id: str = "") -> ActionHandle:
         """Dispatch a new action goal over DDS action transport.
 
-        Includes dual gates for HPU model tools:
+        HPU model tools use dual gate with graceful contention handling:
         1) scheduler logical quota
         2) lease physical ownership
+
+        On contention, request is queued and caller gets `HPU_QUEUED` so executor
+        can retry without hard-fail.
         """
         if self._is_hpu_model_tool(tool):
+            token = self._enqueue_hpu(session_id, tool, args)
+            self._maybe_preempt_hpu_owner(session_id)
+            if token != self._queue_head_token():
+                raise RuntimeError("HPU_QUEUED: waiting higher-priority jobs")
+            if not self._check_hpu_physical_gate(session_id):
+                raise RuntimeError("HPU_QUEUED: waiting hpu lease")
             if self.scheduler:
                 job = TaskSpec(name=tool, task_type="model", priority=5, est_latency_ms=300)
                 if not self.scheduler.start(job):
-                    raise RuntimeError("HPU_BUSY: scheduler quota exceeded")
+                    raise RuntimeError("HPU_QUEUED: scheduler quota exceeded")
             else:
                 job = None
-            if not self._check_hpu_physical_gate(session_id):
-                if job and self.scheduler:
-                    self.scheduler.finish(job)
-                raise RuntimeError("HPU_BUSY: hpu lease not held")
+            self._pop_queue_token(token)
         else:
             job = None
 

@@ -74,7 +74,7 @@ class Executor:
                 try:
                     handle = self.actions.send_goal(session.session_id, node["tool"], node.get("args", {}))
                 except RuntimeError as exc:
-                    if str(exc).startswith("HPU_BUSY"):
+                    if str(exc).startswith("HPU_BUSY") or str(exc).startswith("HPU_QUEUED"):
                         # degrade policy: delay and retry in later ticks
                         return RUNNING
                     return FAILURE
