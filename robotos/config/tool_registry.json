@@ -1,0 +1,124 @@
+[
+  {
+    "tool": "nav.goto",
+    "dds_action": "/nav_goto/action",
+    "required_resources": [
+      "base"
+    ],
+    "capability": "NAV",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 500,
+    "timeout_default_ms": 10000,
+    "contract_version": "1.1",
+    "idempotent": false,
+    "compensation_tool": "",
+    "rollout_stage": "ga"
+  },
+  {
+    "tool": "dialog.say",
+    "dds_action": "/dialog_say/action",
+    "required_resources": [
+      "speaker"
+    ],
+    "capability": "DIALOG",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 500,
+    "timeout_default_ms": 5000,
+    "contract_version": "1.0",
+    "idempotent": true,
+    "compensation_tool": "",
+    "rollout_stage": "ga"
+  },
+  {
+    "tool": "dialog.wait_reply",
+    "dds_action": "/dialog_wait_reply/action",
+    "required_resources": [
+      "mic"
+    ],
+    "capability": "DIALOG",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 500,
+    "timeout_default_ms": 30000,
+    "contract_version": "1.0",
+    "idempotent": false,
+    "compensation_tool": "dialog.say",
+    "rollout_stage": "beta"
+  },
+  {
+    "tool": "perception.yolo.detect",
+    "dds_action": "/perception_yolo_detect/action",
+    "required_resources": [
+      "camera",
+      "npu"
+    ],
+    "capability": "PERCEPTION",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 200,
+    "timeout_default_ms": 1500,
+    "contract_version": "1.0",
+    "idempotent": true,
+    "compensation_tool": "",
+    "rollout_stage": "ga"
+  },
+  {
+    "tool": "perception.depth_anything.estimate",
+    "dds_action": "/perception_depth_anything_estimate/action",
+    "required_resources": [
+      "hpu"
+    ],
+    "capability": "PERCEPTION",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 300,
+    "timeout_default_ms": 5000,
+    "contract_version": "1.0",
+    "idempotent": true,
+    "compensation_tool": "",
+    "rollout_stage": "beta"
+  },
+  {
+    "tool": "navigation.navdp.predict_waypoint",
+    "dds_action": "/navigation_navdp_predict_waypoint/action",
+    "required_resources": [
+      "hpu"
+    ],
+    "capability": "NAV",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 300,
+    "timeout_default_ms": 3000,
+    "contract_version": "1.0",
+    "idempotent": false,
+    "compensation_tool": "",
+    "rollout_stage": "beta",
+    "degrade_fallback_tool": "navigation.navdp.logic_predict_waypoint"
+  },
+  {
+    "tool": "planning.robobrain.plan",
+    "dds_action": "/planning_robobrain_plan/action",
+    "required_resources": [
+      "hpu"
+    ],
+    "capability": "PLANNING",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 500,
+    "timeout_default_ms": 8000,
+    "contract_version": "1.0",
+    "idempotent": true,
+    "compensation_tool": "",
+    "rollout_stage": "beta"
+  },
+  {
+    "tool": "navigation.navdp.logic_predict_waypoint",
+    "dds_action": "/navigation_navdp_logic_predict_waypoint/action",
+    "required_resources": [
+      "cpu"
+    ],
+    "capability": "NAV",
+    "risk_class": "SAFE",
+    "cancel_grace_ms": 100,
+    "timeout_default_ms": 1500,
+    "contract_version": "1.0",
+    "idempotent": true,
+    "compensation_tool": "",
+    "rollout_stage": "ga"
+  }
+]
