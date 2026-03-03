@@ -73,3 +73,21 @@ def test_message_stream_idempotent_consumer_contract(tmp_path):
 
     assert consumer.poll_new(consumer_id="planner") == 1
     assert consumer.poll_new(consumer_id="planner") == 0
+
+
+def test_resource_policy_camera_is_subscription_not_lease():
+    osm = OSMStore()
+    mgr = LeaseManager(osm)
+    leases = mgr.acquire(["camera"], "S-1")
+    assert leases == []
+    assert "camera" not in mgr.by_resource
+    assert any(e.type == "LEASE_BYPASSED" and e.payload.get("resource") == "camera" for e in osm.event_log)
+
+
+def test_resource_policy_defaults_for_hpu_and_base():
+    osm = OSMStore()
+    mgr = LeaseManager(osm)
+    hpu = mgr.policy_for("hpu")
+    base = mgr.policy_for("base")
+    assert hpu.exclusive is True and hpu.timeout_mode == "hard" and hpu.on_expire == "fail"
+    assert base.exclusive is True and base.timeout_mode == "hard" and base.on_expire == "fail"

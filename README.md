@@ -74,6 +74,17 @@ export ROBOTOS_API_KEYS='{"admin-token":{"actor":"ops_oncall","role":"admin"}}'
 
 ## 消息与事件可靠性 SLA（新增）
 
+
+## Lease 资源策略（按当前机器人形态）
+
+- `hpu`：单资源独占，硬超时（hard timeout），过期默认 `fail`。
+- `base`（底盘/运动控制）：单资源独占，硬超时（hard timeout），过期默认 `fail`。
+- `camera`：30fps 常驻发布流，任务通过订阅使用，不走独占 lease（lease bypass）。
+
+说明：
+- Lease 管理器会在运行时做过期清扫，并向请求队列写入 `LEASE_EXPIRE_*` 提示，供上层策略决定 fail/retry/degrade。
+
+
 - MessageStream 对持久化消息提供 **at-least-once** 交付语义。
 - 业务侧副作用必须按 `idempotency_key` 做幂等（跨重启通过 `consumer_id` 状态文件维持）。
 - OSM/Message JSONL 可重放；消费者必须接受重复消息并做去重。
