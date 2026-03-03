@@ -67,6 +67,9 @@ class Executor:
             if not aid:
                 spec = self.policy.check_tool(session, node["tool"])
                 for r in spec.required_resources:
+                    policy = self.leases.policy_for(r)
+                    if not policy.lease_required:
+                        continue
                     if r not in self.leases.by_resource:
                         return FAILURE
                 if not self.actions.can_dispatch(session.session_id):

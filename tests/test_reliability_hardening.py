@@ -92,3 +92,28 @@ def test_resource_policy_defaults_for_hpu_and_base():
     assert hpu.exclusive is True and hpu.timeout_mode == "hard" and hpu.on_expire == "fail"
     assert hpu.wait_soft_ms == 1000 and hpu.wait_hard_ms == 1000
     assert base.exclusive is True and base.timeout_mode == "hard" and base.on_expire == "fail"
+    mic = mgr.policy_for("mic")
+    speaker = mgr.policy_for("speaker")
+    assert mic.lease_required is False and mic.exclusive is False
+    assert speaker.lease_required is True and speaker.exclusive is True and speaker.timeout_mode == "hard"
+
+
+def test_resource_policy_microphone_is_subscription_not_lease():
+    osm = OSMStore()
+    mgr = LeaseManager(osm)
+    leases = mgr.acquire(["mic"], "S-1")
+    assert leases == []
+    assert "mic" not in mgr.by_resource
+    assert any(e.type == "LEASE_BYPASSED" and e.payload.get("resource") == "mic" for e in osm.event_log)
+
+
+def test_resource_policy_speaker_is_exclusive_and_fails_fast():
+    osm = OSMStore()
+    mgr = LeaseManager(osm)
+    mgr.acquire(["speaker"], "S-owner")
+    try:
+        mgr.acquire(["speaker"], "S-other")
+        raise AssertionError("expected speaker busy")
+    except RuntimeError as exc:
+        assert str(exc).startswith("SPEAKER_BUSY")
+

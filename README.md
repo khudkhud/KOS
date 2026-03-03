@@ -80,6 +80,8 @@ export ROBOTOS_API_KEYS='{"admin-token":{"actor":"ops_oncall","role":"admin"}}'
 - `hpu`：单资源独占，资源竞争可等待（soft=1000ms, hard=1000ms）；1s内空闲即执行，超出1s返回超时。
 - `base`（底盘/运动控制）：单资源独占，竞争失败立即返回 `BASE_BUSY`（由上层决定 replan/重试）。
 - `camera`：30fps 常驻发布流，任务通过订阅使用，不走独占 lease（lease bypass）。
+- `mic`（麦克风）：通常为常驻采集流，任务订阅音频，不做独占 lease（lease bypass）。
+- `speaker`（扬声器）：播放/TTS 需要串行，采用独占 lease；竞争失败立即返回 `SPEAKER_BUSY`。
 
 说明：
 - Lease 管理器会在运行时做过期清扫，并向请求队列写入 `LEASE_EXPIRE_*` 提示，供上层策略决定 fail/retry/degrade。

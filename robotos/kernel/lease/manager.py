@@ -34,6 +34,10 @@ DEFAULT_RESOURCE_POLICIES: Dict[str, ResourceLeasePolicy] = {
     "base": ResourceLeasePolicy(ttl_ms=2_000, renew_interval_ms=600, timeout_mode="hard", on_expire="fail", lease_required=True, exclusive=True, wait_soft_ms=0, wait_hard_ms=0),
     # camera is continuous 30fps service stream; tasks subscribe instead of owning it
     "camera": ResourceLeasePolicy(ttl_ms=0, renew_interval_ms=0, timeout_mode="soft", on_expire="retry", lease_required=False, exclusive=False, wait_soft_ms=0, wait_hard_ms=0),
+    # microphone is typically an always-on capture stream consumed via subscriptions
+    "mic": ResourceLeasePolicy(ttl_ms=0, renew_interval_ms=0, timeout_mode="soft", on_expire="retry", lease_required=False, exclusive=False, wait_soft_ms=0, wait_hard_ms=0),
+    # speaker output is serialized to avoid overlapping TTS/playback
+    "speaker": ResourceLeasePolicy(ttl_ms=1_500, renew_interval_ms=400, timeout_mode="hard", on_expire="fail", lease_required=True, exclusive=True, wait_soft_ms=0, wait_hard_ms=0),
 }
 
 
@@ -82,6 +86,8 @@ class LeaseManager:
                 if owner != session_id:
                     if res == "base":
                         raise RuntimeError(f"BASE_BUSY: resource busy: {res} owned by {owner}")
+                    if res == "speaker":
+                        raise RuntimeError(f"SPEAKER_BUSY: resource busy: {res} owned by {owner}")
                     raise RuntimeError(f"resource busy: {res} owned by {owner}")
 
             final_ttl = int(ttl_ms if ttl_ms is not None else policy.ttl_ms)
