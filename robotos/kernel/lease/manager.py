@@ -38,20 +38,36 @@ DEFAULT_RESOURCE_POLICIES: Dict[str, ResourceLeasePolicy] = {
     "mic": ResourceLeasePolicy(ttl_ms=0, renew_interval_ms=0, timeout_mode="soft", on_expire="retry", lease_required=False, exclusive=False, wait_soft_ms=0, wait_hard_ms=0),
     # speaker output is serialized to avoid overlapping TTS/playback
     "speaker": ResourceLeasePolicy(ttl_ms=1_500, renew_interval_ms=400, timeout_mode="hard", on_expire="fail", lease_required=True, exclusive=True, wait_soft_ms=0, wait_hard_ms=0),
+    # NPU model runtime, exclusive by default (can be tuned later)
+    "npu": ResourceLeasePolicy(ttl_ms=2_000, renew_interval_ms=600, timeout_mode="hard", on_expire="fail", lease_required=True, exclusive=True, wait_soft_ms=0, wait_hard_ms=0),
+    # CPU is generally shared and should not require exclusive lease ownership
+    "cpu": ResourceLeasePolicy(ttl_ms=0, renew_interval_ms=0, timeout_mode="soft", on_expire="retry", lease_required=False, exclusive=False, wait_soft_ms=0, wait_hard_ms=0),
 }
 
 
 class LeaseManager:
-    def __init__(self, osm: OSMStore, resource_policies: Dict[str, ResourceLeasePolicy] | None = None) -> None:
+    def __init__(self, osm: OSMStore, resource_policies: Dict[str, ResourceLeasePolicy] | None = None, strict_unknown_resource: bool = True) -> None:
         self.osm = osm
         self.by_resource: Dict[str, str] = {}
         self.resource_policies = {**DEFAULT_RESOURCE_POLICIES, **(resource_policies or {})}
+        self.strict_unknown_resource = strict_unknown_resource
         self.rebuild_index_from_projection()
 
     def policy_for(self, resource: str) -> ResourceLeasePolicy:
-        return self.resource_policies.get(
-            resource,
-            ResourceLeasePolicy(ttl_ms=5_000, renew_interval_ms=1_500, timeout_mode="hard", on_expire="fail", lease_required=True, exclusive=True, wait_soft_ms=0, wait_hard_ms=0),
+        policy = self.resource_policies.get(resource)
+        if policy is not None:
+            return policy
+        if self.strict_unknown_resource:
+            raise KeyError(f"unknown resource policy: {resource}")
+        return ResourceLeasePolicy(
+            ttl_ms=5_000,
+            renew_interval_ms=1_500,
+            timeout_mode="hard",
+            on_expire="fail",
+            lease_required=True,
+            exclusive=True,
+            wait_soft_ms=0,
+            wait_hard_ms=0,
         )
 
     def rebuild_index_from_projection(self) -> int:

@@ -249,7 +249,8 @@ class ActionSupervisor:
             if not self._ensure_hpu_gate(session_id):
                 if not self._wait_for_hpu(session_id, tool):
                     self._pop_queue_token(token)
-                    raise RuntimeError("HPU_TIMEOUT: waited 1000ms for hpu lease")
+                    hard_ms = self.leases.policy_for("hpu").wait_hard_ms if self.leases else 1000
+                    raise RuntimeError(f"HPU_TIMEOUT: waited {hard_ms}ms for hpu lease")
             if self.scheduler:
                 job = TaskSpec(name=tool, task_type="model", priority=5, est_latency_ms=300)
                 if not self.scheduler.start(job):

@@ -82,9 +82,12 @@ export ROBOTOS_API_KEYS='{"admin-token":{"actor":"ops_oncall","role":"admin"}}'
 - `camera`：30fps 常驻发布流，任务通过订阅使用，不走独占 lease（lease bypass）。
 - `mic`（麦克风）：通常为常驻采集流，任务订阅音频，不做独占 lease（lease bypass）。
 - `speaker`（扬声器）：播放/TTS 需要串行，采用独占 lease；竞争失败立即返回 `SPEAKER_BUSY`。
+- `npu`：独占计算资源（默认 hard/fail），用于需要设备级互斥的推理任务。
+- `cpu`：共享资源，默认不做独占 lease（按可并行执行设计）。
 
 说明：
 - Lease 管理器会在运行时做过期清扫，并向请求队列写入 `LEASE_EXPIRE_*` 提示，供上层策略决定 fail/retry/degrade。
+- 未知资源策略默认不放行（fail-fast），新增资源需先在策略表显式注册。
 
 
 - MessageStream 对持久化消息提供 **at-least-once** 交付语义。

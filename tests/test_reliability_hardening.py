@@ -117,3 +117,22 @@ def test_resource_policy_speaker_is_exclusive_and_fails_fast():
     except RuntimeError as exc:
         assert str(exc).startswith("SPEAKER_BUSY")
 
+
+
+def test_resource_policy_npu_cpu_defaults():
+    osm = OSMStore()
+    mgr = LeaseManager(osm)
+    npu = mgr.policy_for("npu")
+    cpu = mgr.policy_for("cpu")
+    assert npu.lease_required is True and npu.exclusive is True
+    assert cpu.lease_required is False and cpu.exclusive is False
+
+
+def test_unknown_resource_policy_fails_fast():
+    osm = OSMStore()
+    mgr = LeaseManager(osm)
+    try:
+        mgr.policy_for("custom_accelerator")
+        raise AssertionError("expected unknown resource policy error")
+    except KeyError as exc:
+        assert "unknown resource policy" in str(exc)
