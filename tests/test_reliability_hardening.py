@@ -136,3 +136,55 @@ def test_unknown_resource_policy_fails_fast():
         raise AssertionError("expected unknown resource policy error")
     except KeyError as exc:
         assert "unknown resource policy" in str(exc)
+
+
+def test_admission_allows_intent_without_planned_tools():
+    sys = build_system()
+    api = sys["api"]
+    osm = sys["osm"]
+
+    sid = api.post_sessions({"owner": "voice", "capabilities": ["NAV"]})["session_id"]
+    api.post_submit_intent(sid, {"goal": "go_home"})
+
+    assert any(item.get("session_id") == sid for item in osm.intent_queue)
+    assert not any(e.type == "ADMISSION_REJECTED" and e.session_id == sid for e in osm.event_log)
+
+
+def test_admission_rejects_only_unknown_tools():
+    sys = build_system()
+    api = sys["api"]
+    osm = sys["osm"]
+
+    sid = api.post_sessions({"owner": "voice", "capabilities": ["NAV"]})["session_id"]
+    api.post_submit_intent(
+        sid,
+        {
+            "goal": "do_task",
+            "planned_tools": ["unknown.tool"],
+            "latency_budget_ms": 1,
+        },
+    )
+
+    assert not any(item.get("session_id") == sid for item in osm.intent_queue)
+    rej = [e for e in osm.event_log if e.type == "ADMISSION_REJECTED" and e.session_id == sid]
+    assert len(rej) == 1
+    assert rej[0].payload.get("reason") == "unknown_tools"
+
+
+def test_admission_no_longer_rejects_based_on_latency_budget():
+    sys = build_system()
+    api = sys["api"]
+    osm = sys["osm"]
+
+    sid = api.post_sessions({"owner": "voice", "capabilities": ["NAV"]})["session_id"]
+    api.post_submit_intent(
+        sid,
+        {
+            "goal": "tight_budget",
+            "planned_tools": ["planning.robobrain.plan"],
+            "latency_budget_ms": 1,
+        },
+    )
+
+    assert any(item.get("session_id") == sid for item in osm.intent_queue)
+    assert not any(e.type == "ADMISSION_REJECTED" and e.session_id == sid for e in osm.event_log)
