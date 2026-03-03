@@ -12,6 +12,7 @@ import time
 from typing import Any, Dict, Optional
 
 from robotos.kernel.action.dds import ActionHeader, Cancel, DDSActionClient, Goal, result_to_action_result
+from robotos.kernel.error_codes import ActionDispatchError, ERR_HPU_QUEUED, ERR_HPU_TIMEOUT, ERR_SCHED_QUOTA
 from robotos.kernel.lease.manager import LeaseManager
 from robotos.kernel.osm.store import OSMStore
 from robotos.kernel.policy.gate import ToolRegistry
@@ -99,7 +100,13 @@ class ActionSupervisor:
     def _queue_head_token(self) -> str | None:
         if not self._pending_hpu:
             return None
-        item = sorted(self._pending_hpu, key=lambda x: (-int(x["priority"]), int(x["ts"])))[0]
+        now = now_ms()
+
+        def score(item: dict[str, Any]) -> tuple[int, int]:
+            waited_bucket = min((now - int(item["ts"])) // 3_000, 3)
+            return (int(item["priority"]) + int(waited_bucket), -int(item["ts"]))
+
+        item = sorted(self._pending_hpu, key=lambda x: (-score(x)[0], score(x)[1]))[0]
         return str(item["token"])
 
     def _pop_queue_token(self, token: str) -> None:
@@ -244,18 +251,16 @@ class ActionSupervisor:
             token = self._enqueue_hpu(session_id, tool, args)
             self._maybe_preempt_hpu_owner(session_id)
             if token != self._queue_head_token():
-                self._pop_queue_token(token)
-                return self._dispatch_with_degrade(session_id=session_id, tool=tool, args=args, reason="HPU_QUEUED: waiting higher-priority jobs", plan_id=plan_id, trace_id=trace_id)
+                raise ActionDispatchError(code=ERR_HPU_QUEUED, detail="waiting queue head", retryable=True)
             if not self._ensure_hpu_gate(session_id):
                 if not self._wait_for_hpu(session_id, tool):
                     self._pop_queue_token(token)
                     hard_ms = self.leases.policy_for("hpu").wait_hard_ms if self.leases else 1000
-                    raise RuntimeError(f"HPU_TIMEOUT: waited {hard_ms}ms for hpu lease")
+                    raise ActionDispatchError(code=ERR_HPU_TIMEOUT, detail=f"waited {hard_ms}ms for hpu lease", retryable=False, suggest_replan=True)
             if self.scheduler:
                 job = TaskSpec(name=tool, task_type="model", priority=5, est_latency_ms=300)
                 if not self.scheduler.start(job):
-                    self._pop_queue_token(token)
-                    return self._dispatch_with_degrade(session_id=session_id, tool=tool, args=args, reason="HPU_QUEUED: scheduler quota exceeded", plan_id=plan_id, trace_id=trace_id)
+                    raise ActionDispatchError(code=ERR_SCHED_QUOTA, detail="scheduler quota exceeded", retryable=True)
             else:
                 job = None
             self._pop_queue_token(token)

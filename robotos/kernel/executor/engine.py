@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from robotos.kernel.action.supervisor import ActionSupervisor
+from robotos.kernel.error_codes import ActionDispatchError, ERR_HPU_QUEUED, ERR_SCHED_QUOTA
 from robotos.kernel.lease.manager import LeaseManager
 from robotos.kernel.policy.gate import PolicyGate
 from robotos.models import Session
@@ -76,10 +77,24 @@ class Executor:
                     return RUNNING
                 try:
                     handle = self.actions.send_goal(session.session_id, node["tool"], node.get("args", {}))
-                except RuntimeError as exc:
-                    if str(exc).startswith("HPU_BUSY") or str(exc).startswith("HPU_QUEUED"):
-                        # degrade policy: delay and retry in later ticks
+                except ActionDispatchError as exc:
+                    if exc.code in {ERR_HPU_QUEUED, ERR_SCHED_QUOTA} and exc.retryable:
                         return RUNNING
+                    if exc.suggest_replan:
+                        self.leases.osm.apply_patch(
+                            {
+                                "type": "request_enqueue",
+                                "request": {
+                                    "topic": "REQ_REPLAN",
+                                    "session_id": session.session_id,
+                                    "code": exc.code,
+                                    "reason": exc.detail,
+                                    "tool": node["tool"],
+                                },
+                            }
+                        )
+                    return FAILURE
+                except RuntimeError:
                     return FAILURE
                 rt.active_action[nid] = handle.action_id
                 return RUNNING

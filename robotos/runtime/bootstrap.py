@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 import os
 from typing import Any, Dict
 
+from robotos.control.admission import AdmissionBudget
 from robotos.control.agents import TaskExecutionAgent
 from robotos.control.api.app import ControlAPI
 from robotos.control.context.builder import ContextBuilder
@@ -110,7 +111,8 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
         max_session_runtime_ms=resolved.embodiment.max_session_runtime_ms,
         stale_action_timeout_ms=resolved.embodiment.stale_action_timeout_ms,
     )
-    sessions = SessionService(osm, stream)
+    admission = AdmissionBudget(registry, max_parallel_model=resolved.embodiment.max_parallel_model_tasks)
+    sessions = SessionService(osm, stream, admission=admission)
     api = ControlAPI(sessions)
     context_builder = ContextBuilder(osm)
     planner = PlannerClient()
@@ -128,6 +130,7 @@ def build_system(options: BuildOptions | None = None) -> Dict[str, object]:
         "stream": stream,
         "api": api,
         "sessions": sessions,
+        "admission": admission,
         "context_builder": context_builder,
         "planner": planner,
         "compiler": compiler,

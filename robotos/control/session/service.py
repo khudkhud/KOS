@@ -8,17 +8,20 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from robotos.control.admission import AdmissionBudget
 from robotos.control.message.stream import MessageStream
 from robotos.kernel.osm.store import OSMStore
+from robotos.kernel.error_codes import ERR_ADMISSION_REJECTED
 from robotos.models import Message, OSMEvent, Session, SessionState, new_id, now_ms
 
 
 class SessionService:
     """Owns CRUD-style session governance and event emission."""
 
-    def __init__(self, osm: OSMStore, stream: MessageStream) -> None:
+    def __init__(self, osm: OSMStore, stream: MessageStream, admission: AdmissionBudget | None = None) -> None:
         self.osm = osm
         self.stream = stream
+        self.admission = admission
 
     def _audit(self, action: str, actor: str, details: Dict[str, Any]) -> None:
         """Emit an auditable governance decision record."""
@@ -82,6 +85,41 @@ class SessionService:
 
     def submit_intent(self, session_id: str, intent: Dict[str, Any], actor: str = "system") -> None:
         """Attach user intent to session and enqueue planning request."""
+        if self.admission is not None:
+            decision = self.admission.evaluate(intent)
+            if not decision.accepted:
+                detail = decision.detail or {}
+                self.osm.append_event(
+                    OSMEvent(
+                        type="ADMISSION_REJECTED",
+                        session_id=session_id,
+                        payload={"code": decision.code or ERR_ADMISSION_REJECTED, "reason": decision.reason, **detail},
+                    )
+                )
+                self.osm.apply_patch(
+                    {
+                        "type": "request_enqueue",
+                        "request": {
+                            "topic": "REQ_REPLAN",
+                            "session_id": session_id,
+                            "code": decision.code or ERR_ADMISSION_REJECTED,
+                            "reason": decision.reason,
+                            **detail,
+                        },
+                    }
+                )
+                self.stream.publish(
+                    Message(
+                        type="Decision",
+                        topic="SUGGEST_REPLAN",
+                        session_id=session_id,
+                        payload={"code": decision.code or ERR_ADMISSION_REJECTED, "reason": decision.reason, **detail},
+                    ),
+                    sender="control",
+                )
+                self._audit("submit_intent_rejected", actor, {"session_id": session_id, "reason": decision.reason})
+                return
+
         self.osm.apply_patch({"type": "intent_enqueue", "intent": {"session_id": session_id, "intent": intent}})
         self.osm.append_event(OSMEvent(type="INTENT_SUBMITTED", session_id=session_id, payload=intent))
         self.stream.publish(Message(type="Request", topic="REQ_PLAN", session_id=session_id, payload=intent), sender="control")
