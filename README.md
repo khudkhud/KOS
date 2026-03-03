@@ -77,7 +77,7 @@ export ROBOTOS_API_KEYS='{"admin-token":{"actor":"ops_oncall","role":"admin"}}'
 
 ## Lease 资源策略（按当前机器人形态）
 
-- `hpu`：单资源独占，资源竞争可等待（soft=500ms, hard=1000ms）；500ms内空闲即执行，超出1s返回超时。
+- `hpu`：单资源独占，资源竞争可等待（soft=1000ms, hard=1000ms）；1s内空闲即执行，超出1s返回超时。
 - `base`（底盘/运动控制）：单资源独占，竞争失败立即返回 `BASE_BUSY`（由上层决定 replan/重试）。
 - `camera`：30fps 常驻发布流，任务通过订阅使用，不走独占 lease（lease bypass）。
 

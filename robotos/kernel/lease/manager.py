@@ -29,7 +29,7 @@ class ResourceLeasePolicy:
 
 DEFAULT_RESOURCE_POLICIES: Dict[str, ResourceLeasePolicy] = {
     # single HPU, strict exclusive ownership and hard timeout
-    "hpu": ResourceLeasePolicy(ttl_ms=5_000, renew_interval_ms=1_500, timeout_mode="hard", on_expire="fail", lease_required=True, exclusive=True, wait_soft_ms=500, wait_hard_ms=1_000),
+    "hpu": ResourceLeasePolicy(ttl_ms=5_000, renew_interval_ms=1_500, timeout_mode="hard", on_expire="fail", lease_required=True, exclusive=True, wait_soft_ms=1_000, wait_hard_ms=1_000),
     # single mobile base(chassis), strict exclusive ownership and hard timeout
     "base": ResourceLeasePolicy(ttl_ms=2_000, renew_interval_ms=600, timeout_mode="hard", on_expire="fail", lease_required=True, exclusive=True, wait_soft_ms=0, wait_hard_ms=0),
     # camera is continuous 30fps service stream; tasks subscribe instead of owning it

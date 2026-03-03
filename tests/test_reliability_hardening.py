@@ -90,5 +90,5 @@ def test_resource_policy_defaults_for_hpu_and_base():
     hpu = mgr.policy_for("hpu")
     base = mgr.policy_for("base")
     assert hpu.exclusive is True and hpu.timeout_mode == "hard" and hpu.on_expire == "fail"
-    assert hpu.wait_soft_ms == 500 and hpu.wait_hard_ms == 1000
+    assert hpu.wait_soft_ms == 1000 and hpu.wait_hard_ms == 1000
     assert base.exclusive is True and base.timeout_mode == "hard" and base.on_expire == "fail"
