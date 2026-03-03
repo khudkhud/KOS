@@ -58,6 +58,26 @@ ROBOTOS_DDS_BACKEND=inmemory python -m robotos.app
 ROBOTOS_DDS_BACKEND=cyclonedds python -m robotos.app
 ```
 
+
+## 控制面安全基线（新增）
+
+- HTTP API 需携带 `x-api-key`。
+- 通过环境变量 `ROBOTOS_API_KEYS` 配置 token->actor/role 映射（JSON）。
+- 角色最小权限：`admin` / `operator` / `viewer`。
+- cancel/preempt 等高风险操作会记录 `CONTROL_AUDIT` 与治理总线审计消息。
+
+示例：
+
+```bash
+export ROBOTOS_API_KEYS='{"admin-token":{"actor":"ops_oncall","role":"admin"}}'
+```
+
+## 消息与事件可靠性 SLA（新增）
+
+- MessageStream 对持久化消息提供 **at-least-once** 交付语义。
+- 业务侧副作用必须按 `idempotency_key` 做幂等（跨重启通过 `consumer_id` 状态文件维持）。
+- OSM/Message JSONL 可重放；消费者必须接受重复消息并做去重。
+
 ## 测试
 
 ```bash

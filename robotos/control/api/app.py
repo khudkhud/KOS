@@ -11,38 +11,39 @@ class ControlAPI:
     def __init__(self, sessions: SessionService) -> None:
         self.sessions = sessions
 
-    def post_sessions(self, body: Dict[str, Any]) -> Dict[str, Any]:
+    def post_sessions(self, body: Dict[str, Any], actor: str = "system") -> Dict[str, Any]:
         s = self.sessions.create(
             owner=body.get("owner", "app"),
             capabilities=body.get("capabilities", []),
             risk_class=body.get("risk_class", "SAFE"),
             priority=body.get("priority", 0),
             preemption_policy=body.get("preemption_policy", "ALLOW"),
+            actor=actor,
         )
         return {"session_id": s.session_id}
 
-    def post_submit_intent(self, session_id: str, body: Dict[str, Any]) -> Dict[str, str]:
-        self.sessions.submit_intent(session_id, body)
+    def post_submit_intent(self, session_id: str, body: Dict[str, Any], actor: str = "system") -> Dict[str, str]:
+        self.sessions.submit_intent(session_id, body, actor=actor)
         return {"status": "ok"}
 
-    def post_cancel(self, session_id: str) -> Dict[str, str]:
-        self.sessions.cancel(session_id)
+    def post_cancel(self, session_id: str, actor: str = "system") -> Dict[str, str]:
+        self.sessions.cancel(session_id, actor=actor)
         return {"status": "ok"}
 
-    def post_pause(self, session_id: str) -> Dict[str, str]:
-        self.sessions.pause(session_id)
+    def post_pause(self, session_id: str, actor: str = "system") -> Dict[str, str]:
+        self.sessions.pause(session_id, actor=actor)
         return {"status": "ok"}
 
-    def post_resume(self, session_id: str) -> Dict[str, str]:
-        self.sessions.resume(session_id)
+    def post_resume(self, session_id: str, actor: str = "system") -> Dict[str, str]:
+        self.sessions.resume(session_id, actor=actor)
         return {"status": "ok"}
 
-
-    def post_preempt(self, body: Dict[str, Any]) -> Dict[str, str]:
+    def post_preempt(self, body: Dict[str, Any], actor: str = "system") -> Dict[str, str]:
         self.sessions.preempt(
             low_session_id=body["low_session_id"],
             high_session_id=body["high_session_id"],
             mode=body.get("mode", "PAUSE"),
+            actor=actor,
         )
         return {"status": "ok"}
 

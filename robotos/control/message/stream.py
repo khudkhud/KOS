@@ -1,5 +1,9 @@
 """Message stream with durable event log, outbox flush, replay and idempotent consume.
 
+Reliability contract:
+- delivery: at-least-once for persisted records (consumer may observe duplicates)
+- side-effects: callers must use ``idempotency_key`` to deduplicate state writes
+
 Default mode is in-memory pub/sub. When ``persist_path`` is provided, entries are
 written to JSONL event log and can be replayed by other local processes.
 """
