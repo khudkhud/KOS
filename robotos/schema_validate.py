@@ -24,6 +24,14 @@ _TYPE_MAP = {
     "number": (int, float),
 }
 
+def _strip_none(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _strip_none(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_strip_none(x) for x in value]
+    return value
+
+
 
 def load_schema(name: str) -> Dict[str, Any]:
     text = resources.files("robotos.schemas").joinpath(name).read_text(encoding="utf-8")
@@ -32,6 +40,7 @@ def load_schema(name: str) -> Dict[str, Any]:
 
 def validate(instance: Dict[str, Any], schema_name: str) -> None:
     schema = load_schema(schema_name)
+    instance = _strip_none(instance)
     if Draft202012Validator is not None:
         validator = Draft202012Validator(schema)
         errors = sorted(validator.iter_errors(instance), key=lambda e: list(e.path))

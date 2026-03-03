@@ -36,6 +36,8 @@ class Kernel:
         """Run one deterministic tick for a session execution graph."""
         if self.spin_io:
             self.spin_io()
+        # Guardian sweep keeps lease table healthy under crashed clients.
+        self.leases.sweep_expired(now_ms())
         session = self.osm.session_projection[session_id]
         now = now_ms()
         self.session_started_at.setdefault(session_id, now)
@@ -87,36 +89,47 @@ class Kernel:
         """Perform two-phase preemption with fencing and resource handover."""
         low = self.osm.session_projection[low_session_id]
         high = self.osm.session_projection[high_session_id]
+        prev_low_state, prev_high_state = low.state, high.state
 
         self.osm.append_event(OSMEvent(type="PREEMPT_PHASE1_START", session_id=low_session_id, payload={"mode": mode, "high_session": high_session_id}))
+        try:
+            # epoch fence: all in-flight results from old epoch become stale
+            low.action_epoch += 1
+            self.actions.session_epoch[low_session_id] = low.action_epoch
 
-        # epoch fence: all in-flight results from old epoch become stale
-        low.action_epoch += 1
-        self.actions.session_epoch[low_session_id] = low.action_epoch
+            if low_exec_graph and low_rt:
+                self.executor.halt_subtree(low_exec_graph["root"], low_rt)
+            self.actions.cancel_session(low_session_id, reason="preempt")
 
-        if low_exec_graph and low_rt:
-            self.executor.halt_subtree(low_exec_graph["root"], low_rt)
-        self.actions.cancel_session(low_session_id, reason="preempt")
+            # after quiesce, resume from a clean deterministic checkpoint to avoid stale node cursors
+            low.bt_checkpoint = self.snapshot_checkpoint(RuntimeState())
 
-        # after quiesce, resume from a clean deterministic checkpoint to avoid stale node cursors
-        low.bt_checkpoint = self.snapshot_checkpoint(RuntimeState())
+            # phase2 handover: release low-session resources; high session re-acquires explicitly
+            for lid, lease in list(self.osm.lease_projection.items()):
+                if lease.owner_session == low_session_id and lease.state == "HELD":
+                    self.leases.release(lid)
 
-        # phase2 handover: release low-session resources; high session re-acquires explicitly
-        for lid, lease in list(self.osm.lease_projection.items()):
-            if lease.owner_session == low_session_id and lease.state == "HELD":
-                self.leases.release(lid)
+            if mode.upper() == "PAUSE":
+                low.state = SessionState.PAUSED
+                self.osm.append_event(OSMEvent(type="SESSION_STATE_CHANGED", session_id=low_session_id, payload={"state": "PAUSED", "reason": "preempted"}))
+            else:
+                low.state = SessionState.CANCELING
+                self.osm.append_event(OSMEvent(type="SESSION_STATE_CHANGED", session_id=low_session_id, payload={"state": "CANCELING", "reason": "preempted"}))
 
-
-        if mode.upper() == "PAUSE":
-            low.state = SessionState.PAUSED
-            self.osm.append_event(OSMEvent(type="SESSION_STATE_CHANGED", session_id=low_session_id, payload={"state": "PAUSED", "reason": "preempted"}))
-        else:
-            low.state = SessionState.CANCELING
-            self.osm.append_event(OSMEvent(type="SESSION_STATE_CHANGED", session_id=low_session_id, payload={"state": "CANCELING", "reason": "preempted"}))
-
-        self.osm.append_event(OSMEvent(type="PREEMPT_PHASE2_COMPLETE", session_id=high_session_id, payload={"low_session": low_session_id}))
-        high.state = SessionState.EXECUTING
-        self.osm.append_event(OSMEvent(type="SESSION_STATE_CHANGED", session_id=high_session_id, payload={"state": "EXECUTING", "reason": "preempt_win"}))
+            self.osm.append_event(OSMEvent(type="PREEMPT_PHASE2_COMPLETE", session_id=high_session_id, payload={"low_session": low_session_id}))
+            high.state = SessionState.EXECUTING
+            self.osm.append_event(OSMEvent(type="SESSION_STATE_CHANGED", session_id=high_session_id, payload={"state": "EXECUTING", "reason": "preempt_win"}))
+        except Exception as exc:
+            low.state = prev_low_state
+            high.state = prev_high_state
+            self.osm.append_event(
+                OSMEvent(
+                    type="PREEMPT_FAILED_ROLLBACK",
+                    session_id=low_session_id,
+                    payload={"high_session": high_session_id, "error": str(exc)},
+                )
+            )
+            raise
 
     def snapshot_checkpoint(self, rt: RuntimeState) -> str:
         return json.dumps(asdict(rt), ensure_ascii=False)

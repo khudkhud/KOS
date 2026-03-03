@@ -1,5 +1,9 @@
 """Message stream with durable event log, outbox flush, replay and idempotent consume.
 
+Reliability contract:
+- delivery: at-least-once for persisted records (consumer may observe duplicates)
+- side-effects: callers must use ``idempotency_key`` to deduplicate state writes
+
 Default mode is in-memory pub/sub. When ``persist_path`` is provided, entries are
 written to JSONL event log and can be replayed by other local processes.
 """
@@ -7,6 +11,7 @@ written to JSONL event log and can be replayed by other local processes.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections import deque
 from dataclasses import asdict
 import hashlib
 import json
@@ -19,6 +24,7 @@ from robotos.schema_validate import validate
 
 
 Subscriber = Callable[[Message], None]
+GOVERNANCE_TYPES = frozenset({"Proposal", "Decision", "Override", "Escalation"})
 
 
 class MessageStream:
@@ -30,7 +36,7 @@ class MessageStream:
         self.registry = registry
         self.history: List[dict] = []
         self.governance_log: List[dict] = []
-        self.outbox: List[dict] = []
+        self.outbox: deque[dict] = deque()
         self.persist_path = persist_path
         self._cursor_line = 0
         if self.persist_path:
@@ -96,7 +102,7 @@ class MessageStream:
         """Flush pending outbox entries to history/event-log and dispatch."""
         flushed = 0
         while self.outbox:
-            entry = self.outbox.pop(0)
+            entry = self.outbox.popleft()
             self._record_entry(entry)
             self._dispatch(entry)
             flushed += 1
@@ -149,9 +155,7 @@ class MessageStream:
                 if key and key in consumed_keys:
                     cursor = lineno
                     continue
-                self.history.append(entry)
-                if entry.get("type") in {"Proposal", "Decision", "Override", "Escalation"}:
-                    self.governance_log.append(entry)
+                self._append_history(entry)
                 self._dispatch(entry)
                 cursor = lineno
                 consumed += 1
@@ -164,9 +168,7 @@ class MessageStream:
         return consumed
 
     def _record_entry(self, entry: dict) -> None:
-        self.history.append(entry)
-        if entry["type"] in {"Proposal", "Decision", "Override", "Escalation"}:
-            self.governance_log.append(entry)
+        self._append_history(entry)
         if self.persist_path:
             path = Path(self.persist_path)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -197,10 +199,13 @@ class MessageStream:
         with path.open("r", encoding="utf-8") as f:
             for lineno, line in enumerate(f, start=1):
                 entry = json.loads(line)
-                self.history.append(entry)
-                if entry.get("type") in {"Proposal", "Decision", "Override", "Escalation"}:
-                    self.governance_log.append(entry)
+                self._append_history(entry)
                 self._cursor_line = lineno
+
+    def _append_history(self, entry: dict) -> None:
+        self.history.append(entry)
+        if entry.get("type") in GOVERNANCE_TYPES:
+            self.governance_log.append(entry)
 
     def _build_idempotency_key(self, msg: Message) -> str:
         if msg.correlation_id:
